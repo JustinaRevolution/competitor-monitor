@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Add URL — Competitor Monitor{% endblock %}
+{% block content %}
+<div class="auth-form">
+    <h2>Add a competitor page to monitor</h2>
+    <form method="POST" action="/urls/new">
+        <label>
+            Label
+            <input type="text" name="label" required placeholder="e.g. Acme Corp Pricing">
+        </label>
+        <label>
+            URL
+            <input type="url" name="url" required placeholder="https://acme.com/pricing">
+        </label>
+        <label>
+            Check every
+            <select name="check_interval_hours">
+                <option value="6">6 hours</option>
+                <option value="12">12 hours</option>
+                <option value="24" selected>24 hours</option>
+                <option value="48">48 hours</option>
+                <option value="168">Once a week</option>
+            </select>
+        </label>
+        <button type="submit" class="btn-primary">Start monitoring</button>
+    </form>
+    <p class="auth-alt"><a href="/dashboard">← Back to dashboard</a></p>
+</div>
+{% endblock %}

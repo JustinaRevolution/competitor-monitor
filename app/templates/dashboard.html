@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Competitor Monitor{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <div class="dash-header">
+        <h2>Your monitored pages</h2>
+        <a href="/urls/new" class="btn-primary">+ Add URL</a>
+    </div>
+
+    {% if urls %}
+        <div class="url-list">
+            {% for url in urls %}
+                <div class="url-card">
+                    <div class="url-card-header">
+                        <h3>{{ url.label }}</h3>
+                        <span class="badge {% if url.is_active %}active{% else %}paused{% endif %}">
+                            {{ "Active" if url.is_active else "Paused" }}
+                        </span>
+                    </div>
+                    <p class="url-target">{{ url.url }}</p>
+                    <div class="url-meta">
+                        <span>Checks every {{ url.check_interval_hours }}h</span>
+                        <span>{{ url.changes|length }} changes detected</span>
+                        {% if url.last_checked_at %}
+                            <span>Last checked: {{ url.last_checked_at.strftime('%b %d, %H:%M') }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="url-actions">
+                        <a href="/urls/{{ url.id }}">View history</a>
+                        <a href="/urls/{{ url.id }}/check" class="action-check">Check now</a>
+                        <a href="/urls/{{ url.id }}/toggle" class="action-toggle">
+                            {{ "Pause" if url.is_active else "Resume" }}
+                        </a>
+                        <a href="/urls/{{ url.id }}/delete" class="action-delete" onclick="return confirm('Delete this URL?')">Delete</a>
+                    </div>
+
+                    {% if url.changes %}
+                        <div class="recent-changes">
+                            <h4>Recent changes</h4>
+                            {% for change in url.changes[:3] %}
+                                <div class="change-item">
+                                    <span class="change-time">{{ change.detected_at.strftime('%b %d, %H:%M') }}</span>
+                                    <pre class="change-diff">{{ change.diff_summary[:200] }}{% if change.diff_summary and change.diff_summary|length > 200 %}...{% endif %}</pre>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <p>You haven't added any competitor pages yet.</p>
+            <p>Add your first URL to start monitoring.</p>
+            <a href="/urls/new" class="btn-primary">+ Add your first URL</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

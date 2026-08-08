@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Privacy Policy — Competitor Monitor{% endblock %}
+{% block content %}
+<div class="legal-page">
+    <h1>Privacy Policy</h1>
+    <p class="legal-date">Effective: August 8, 2026</p>
+
+    <h2>What This Covers</h2>
+    <p>This Privacy Policy explains how Competitor Monitor ("we," "us") handles your information when you use our service. We run a simple tool — we monitor web pages you give us and email you when they change. That's it.</p>
+
+    <h2>What We Collect</h2>
+
+    <h3>Account Information</h3>
+    <p>When you sign up, we collect:</p>
+    <ul>
+        <li>Your email address</li>
+        <li>A password (stored as a salted hash — we never see your plaintext password)</li>
+    </ul>
+
+    <h3>Monitored URLs</h3>
+    <p>You provide the URLs you want us to watch. We store them and periodically fetch their content to detect changes. We also store snapshots of those pages' content when changes are detected, so we can show you what changed.</p>
+
+    <h3>Payment Information</h3>
+    <p>We use <a href="https://stripe.com/privacy" target="_blank">Stripe</a> to process payments. Your credit card details never touch our servers — they go directly to Stripe. We receive only your Stripe customer ID and subscription status.</p>
+
+    <h3>Technical Data</h3>
+    <p>Like most web services, our server logs may record your IP address, browser type, and pages visited. These logs are used for operational troubleshooting and are retained for no more than 30 days.</p>
+
+    <h2>How We Use Your Information</h2>
+    <ul>
+        <li>To provide the service — check URLs you've added and send you change alerts</li>
+        <li>To manage your account and subscription</li>
+        <li>To communicate with you about service updates or billing (rarely)</li>
+        <li>To improve the service based on aggregate usage patterns</li>
+    </ul>
+    <p>We do <strong>not</strong> sell your personal information. We do <strong>not</strong> use your data for advertising. We do <strong>not</strong> train AI models on your data.</p>
+
+    <h2>Third-Party Services</h2>
+    <p>We use these third-party services to run the product:</p>
+    <ul>
+        <li><strong>Stripe</strong> — payment processing. Their privacy policy: <a href="https://stripe.com/privacy" target="_blank">stripe.com/privacy</a></li>
+        <li><strong>SendGrid</strong> — sending alert emails. Their privacy policy: <a href="https://www.twilio.com/legal/privacy" target="_blank">twilio.com/legal/privacy</a></li>
+        <li><strong>Cloud hosting provider</strong> — server infrastructure. Data is stored in US/EU data centers.</li>
+    </ul>
+
+    <h2>Data Retention</h2>
+    <ul>
+        <li><strong>Account data:</strong> retained while your account is active. You can delete your account at any time.</li>
+        <li><strong>Change history:</strong> retained for the life of your account. When you delete a monitored URL, its change history is deleted with it.</li>
+        <li><strong>Logs:</strong> retained for 30 days, then automatically deleted.</li>
+    </ul>
+
+    <h2>Your Rights</h2>
+    <p>You can:</p>
+    <ul>
+        <li><strong>Access</strong> your data — it's visible on your dashboard</li>
+        <li><strong>Export</strong> your data — <a href="mailto:support@competitormonitor.com">email us</a> for a full export</li>
+        <li><strong>Delete</strong> your account — <a href="mailto:support@competitormonitor.com">email us</a> and we'll remove everything within 14 days</li>
+    </ul>
+
+    <h2>Security</h2>
+    <p>We use industry-standard practices: passwords are salted and hashed, all traffic is over HTTPS, and we follow least-privilege access to our infrastructure. That said, no service is 100% secure. We commit to notifying you within 72 hours if we discover a breach affecting your data.</p>
+
+    <h2>Changes to This Policy</h2>
+    <p>If we change this policy materially, we'll notify you by email and via the app. Continued use after changes take effect constitutes acceptance of the updated policy.</p>
+
+    <h2>Contact</h2>
+    <p>Questions? Email us at <a href="mailto:support@competitormonitor.com">support@competitormonitor.com</a></p>
+</div>
+{% endblock %}

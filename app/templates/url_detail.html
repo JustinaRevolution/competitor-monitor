@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{{ url.label }} — Competitor Monitor{% endblock %}
+{% block content %}
+<div class="url-detail">
+    <a href="/dashboard">← Back to dashboard</a>
+    <h2>{{ url.label }}</h2>
+    <p class="url-target"><a href="{{ url.url }}" target="_blank">{{ url.url }}</a></p>
+
+    <div class="url-info">
+        <span>Status: <strong>{{ "Active" if url.is_active else "Paused" }}</strong></span>
+        <span>Checking every {{ url.check_interval_hours }} hours</span>
+        {% if url.last_checked_at %}
+            <span>Last checked: {{ url.last_checked_at.strftime('%b %d, %Y at %H:%M') }}</span>
+        {% endif %}
+    </div>
+
+    <div class="detail-actions">
+        <a href="/urls/{{ url.id }}/check" class="btn-primary">Check now</a>
+        <a href="/urls/{{ url.id }}/toggle">{{ "Pause" if url.is_active else "Resume" }} monitoring</a>
+        <a href="/urls/{{ url.id }}/delete" onclick="return confirm('Delete this URL and all its history?')">Delete</a>
+    </div>
+
+    <h3>Change History</h3>
+    {% if changes %}
+        <div class="change-timeline">
+            {% for change in changes %}
+                <div class="change-entry">
+                    <div class="change-header">
+                        <span class="change-date">{{ change.detected_at.strftime('%b %d, %Y at %H:%M') }}</span>
+                        {% if change.alerted %}
+                            <span class="badge alerted">Alert sent</span>
+                        {% endif %}
+                    </div>
+                    <pre class="change-diff-full">{{ change.diff_summary }}</pre>
+                    {% if change.old_content and change.new_content %}
+                        <details>
+                            <summary>View raw content snapshots</summary>
+                            <div class="content-snapshots">
+                                <div class="snapshot before">
+                                    <h4>Before</h4>
+                                    <pre>{{ change.old_content[:2000] }}{% if change.old_content|length > 2000 %}... (truncated){% endif %}</pre>
+                                </div>
+                                <div class="snapshot after">
+                                    <h4>After</h4>
+                                    <pre>{{ change.new_content[:2000] }}{% if change.new_content|length > 2000 %}... (truncated){% endif %}</pre>
+                                </div>
+                            </div>
+                        </details>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <p>No changes detected yet. The first check will run automatically or you can <a href="/urls/{{ url.id }}/check">check now</a>.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
