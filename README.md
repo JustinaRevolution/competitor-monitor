@@ -1,4 +1,4 @@
-# Competitor Monitor
+# PriceGazer
 
 A simple SaaS that watches competitor pricing pages and alerts you when they change.
 
@@ -27,7 +27,7 @@ sudo bash deploy/setup.sh
 ```
 
 The script will ask for:
-- Domain name (e.g., page-diff.com)
+- Domain name (e.g., pricegazer.com)
 - Resend API key (resend.com — free tier: 3,000 emails/month)
 - Stripe keys (stripe.com)
 - Email for SSL notifications
@@ -35,7 +35,7 @@ The script will ask for:
 ## Architecture
 
 ```
-User visits https://page-diff.com
+User visits https://pricegazer.com
   → FastAPI backend (Python)
   → SQLite database (zero infra)
   → Monitors competitor URLs on schedule
@@ -47,7 +47,7 @@ User visits https://page-diff.com
 
 | Item | Cost | Notes |
 |------|------|-------|
-| Domain (page-diff.com) | $17.29/yr | NameSilo, flat pricing |
+| Domain (pricegazer.com) | $17.29/yr | NameSilo, flat pricing |
 | VPS hosting | $3-5/mo | InterServer, Hetzner, or DigitalOcean |
 | Email (Resend) | $0/mo | 3,000 emails/month free |
 | Stripe fees | 2.9% + $0.30 | Per-transaction |

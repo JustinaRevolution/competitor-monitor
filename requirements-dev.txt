@@ -1,0 +1,10 @@
+# Test-only dependencies. The deploy installs requirements.txt alone, so nothing
+# here reaches the server.
+#   pip install -r requirements-dev.txt
+-r requirements.txt
+
+# The suite runs two ways: as scripts (python3 tests/test_round10.py) and under
+# pytest, where tests/conftest.py turns each module's recorded check() failures
+# into real assertion failures. That conftest uses the pytest 8+ `wrapper=True`
+# hook style, so keep this at or above 8.
+pytest==9.1.1

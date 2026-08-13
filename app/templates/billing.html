@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Start your subscription — PriceGazer{% endblock %}
+{% block content %}
+<div class="auth-form">
+    <h2>Start monitoring</h2>
+    {% if on_trial %}
+        <p class="paywall-lede">
+            Your free month is running{% if trial_ends_at %} until
+            <strong>{{ trial_ends_at.strftime('%b %d, %Y') }}</strong>{% endif %}.
+            Subscribe now and monitoring simply continues when it ends —
+            PriceGazer is <strong>$19/month</strong>, cancel any time.
+        </p>
+    {% else %}
+        <p class="paywall-lede">
+            Your account is set up, but monitoring hasn't started yet.
+            PriceGazer is <strong>$19/month</strong> — cancel any time.
+        </p>
+    {% endif %}
+
+    {% if referral_credit_months %}
+        <p class="referral-credit">
+            You have <strong>{{ referral_credit_months }} free month(s) banked</strong>
+            from referrals. Email us before your next renewal and we'll apply them.
+        </p>
+    {% endif %}
+
+    <ul class="plan-features">
+        <li>Monitor up to {{ user.max_urls }} competitor pages</li>
+        <li>Automatic checks as often as every hour</li>
+        <li>Email alerts the moment a price or plan changes</li>
+        <li>Full change history with before/after snapshots</li>
+    </ul>
+
+    {% if checkout_error %}
+        <p class="form-error">
+            We couldn't reach Stripe just now, so checkout didn't open.
+            Your account is saved — try again below.
+        </p>
+    {% endif %}
+
+    {% if billing_enabled %}
+        <form method="POST" action="/billing/checkout">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+            <button type="submit" class="btn-primary">Subscribe — $19/month</button>
+        </form>
+    {% else %}
+        <p class="form-error">
+            Billing isn't configured on this instance, so checkout is unavailable.
+        </p>
+    {% endif %}
+
+    <p class="auth-alt"><a href="/dashboard">← Back to dashboard</a></p>
+</div>
+{% endblock %}

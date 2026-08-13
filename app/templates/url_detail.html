@@ -1,23 +1,48 @@
 {% extends "base.html" %}
-{% block title %}{{ url.label }} — Competitor Monitor{% endblock %}
+{% block title %}{{ url.label }} — PriceGazer{% endblock %}
 {% block content %}
 <div class="url-detail">
     <a href="/dashboard">← Back to dashboard</a>
     <h2>{{ url.label }}</h2>
-    <p class="url-target"><a href="{{ url.url }}" target="_blank">{{ url.url }}</a></p>
+    <p class="url-target"><a href="{{ url.url }}" target="_blank" rel="noopener noreferrer">{{ url.url }}</a></p>
+
+    {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
 
     <div class="url-info">
-        <span>Status: <strong>{{ "Active" if url.is_active else "Paused" }}</strong></span>
-        <span>Checking every {{ url.check_interval_hours }} hours</span>
+        <span>Status:
+            <strong>{% if url.is_active %}Active{% elif url.paused_reason %}Auto-paused{% else %}Paused{% endif %}</strong>
+        </span>
+        <span>Checking every {{ url.effective_interval_hours }} hours</span>
         {% if url.last_checked_at %}
             <span>Last checked: {{ url.last_checked_at.strftime('%b %d, %Y at %H:%M') }}</span>
         {% endif %}
     </div>
 
+    {% if url.paused_reason %}
+        <p class="url-warning">⚠ {{ url.paused_reason }}</p>
+    {% elif url.consecutive_failures %}
+        <p class="url-warning">
+            ⚠ {{ url.consecutive_failures }} consecutive failed check(s) — {{ url.last_error }}.
+            Backing off until {{ url.cooldown_until().strftime('%b %d, %H:%M') }} UTC.
+        </p>
+    {% endif %}
+
     <div class="detail-actions">
-        <a href="/urls/{{ url.id }}/check" class="btn-primary">Check now</a>
-        <a href="/urls/{{ url.id }}/toggle">{{ "Pause" if url.is_active else "Resume" }} monitoring</a>
-        <a href="/urls/{{ url.id }}/delete" onclick="return confirm('Delete this URL and all its history?')">Delete</a>
+        {% if is_paid %}
+            <form method="POST" action="/urls/{{ url.id }}/check" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+                <button type="submit" class="btn-primary">Check now</button>
+            </form>
+        {% endif %}
+        <form method="POST" action="/urls/{{ url.id }}/toggle" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+            <button type="submit">{{ "Pause" if url.is_active else "Resume" }} monitoring</button>
+        </form>
+        <form method="POST" action="/urls/{{ url.id }}/delete" class="inline-form"
+              onsubmit="return confirm('Delete this URL and all its history?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+            <button type="submit">Delete</button>
+        </form>
     </div>
 
     <h3>Change History</h3>
@@ -29,6 +54,10 @@
                         <span class="change-date">{{ change.detected_at.strftime('%b %d, %Y at %H:%M') }}</span>
                         {% if change.alerted %}
                             <span class="badge alerted">Alert sent</span>
+                        {% elif change.alert_gave_up() %}
+                            <span class="badge alert-failed">Alert failed</span>
+                        {% else %}
+                            <span class="badge alert-pending">Alert retrying</span>
                         {% endif %}
                     </div>
                     <pre class="change-diff-full">{{ change.diff_summary }}</pre>
@@ -52,7 +81,7 @@
         </div>
     {% else %}
         <div class="empty-state">
-            <p>No changes detected yet. The first check will run automatically or you can <a href="/urls/{{ url.id }}/check">check now</a>.</p>
+            <p>No changes detected yet. The first check will run automatically, or use “Check now” above.</p>
         </div>
     {% endif %}
 </div>

@@ -3,10 +3,12 @@
 {% block content %}
 <div class="auth-form">
     <h2>Log in</h2>
+    {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
     <form method="POST" action="/login">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
         <label>
             Email
-            <input type="email" name="email" required>
+            <input type="email" name="email" required maxlength="254">
         </label>
         <label>
             Password

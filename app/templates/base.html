@@ -3,13 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Competitor Monitor{% endblock %}</title>
+    <meta name="description" content="PriceGazer watches your competitors' pricing pages around the clock. Get one clear email the moment a price actually changes — no false alarms.">
+    <title>{% block title %}PriceGazer{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
     <nav>
         <div class="nav-inner">
-            <a href="/" class="logo">🔍 Competitor Monitor</a>
+            <a href="/" class="logo">Price<span class="logo-accent">Gazer</span></a>
             <div class="nav-links">
                 {% if user %}
                     <a href="/dashboard">Dashboard</a>
@@ -28,10 +32,10 @@
 
     <footer>
         <div class="footer-links">
-            <a href="/privacy">Privacy Policy</a>
-            <a href="/terms">Terms of Service</a>
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
         </div>
-        <p>Competitor Monitor — $19/month. Know when your competition moves.</p>
+        <p>PriceGazer — $19/month. Know when your competition moves.</p>
     </footer>
 </body>
 </html>

@@ -1,26 +1,34 @@
 {% extends "base.html" %}
-{% block title %}Add URL — Competitor Monitor{% endblock %}
+{% block title %}Add URL — PriceGazer{% endblock %}
 {% block content %}
 <div class="auth-form">
     <h2>Add a competitor page to monitor</h2>
+    {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
     <form method="POST" action="/urls/new">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
         <label>
             Label
-            <input type="text" name="label" required placeholder="e.g. Acme Corp Pricing">
+            <input type="text" name="label" required maxlength="200" placeholder="e.g. Acme Corp Pricing">
         </label>
         <label>
             URL
-            <input type="url" name="url" required placeholder="https://acme.com/pricing">
+            <input type="url" name="url" required pattern="https?://.+"
+                   title="Must start with http:// or https://"
+                   placeholder="https://acme.com/pricing">
         </label>
         <label>
             Check every
             <select name="check_interval_hours">
+                <option value="1">1 hour (fastest)</option>
                 <option value="6">6 hours</option>
                 <option value="12">12 hours</option>
                 <option value="24" selected>24 hours</option>
                 <option value="48">48 hours</option>
                 <option value="168">Once a week</option>
             </select>
+            <small class="field-hint">
+                Between {{ min_interval }} and {{ max_interval }} hours.
+            </small>
         </label>
         <button type="submit" class="btn-primary">Start monitoring</button>
     </form>

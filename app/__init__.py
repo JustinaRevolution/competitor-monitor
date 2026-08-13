@@ -1,1 +1,1 @@
-# Competitor Monitor
+# PriceGazer

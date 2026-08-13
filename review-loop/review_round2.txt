@@ -1,0 +1,83 @@
+## Sixth-round review — PriceGazer
+
+Read-only; no files modified. Suite run: **67 passed** (`venv/bin/python -m pytest tests/ -q`, 31s). Note: the brief describes 5 rounds, but the repo carries tests through `test_round13.py`.
+
+### Coverage is genuinely non-vacuous — proved by mutation
+
+The "green suite that tests nothing" bug is really fixed. `tests/conftest.py:26` re-raises entries added to each module's `FAIL` list during the call phase, so `check()` tallies become real pytest failures. I verified this empirically: I copied the repo to `/tmp`, introduced **15 targeted mutations**, and re-ran the suite each time (temp copy deleted afterward; repo untouched).
+
+**15/15 caught:** `csrf_noop`, `csrf_unbound` (session-binding check removed), `paywall_off`, `ssrf_off`, `port_check_off`, `redirect_noreval` (re-resolve instead of re-validate each hop), `sizecap_off`, `cooldown_checknow_off`, `cooldown_isdue_off`, `prune_off`, `webhook_settled_off`, `webhook_nosecret_ok`, `interval_unvalidated`, `idor_off`, `revoke_off`. No survivors.
+
+### What holds under attack
+
+**SSRF (4).** Every fetch path — `add_url` first check (`main.py:962`), `check_now` (`main.py:1066`), scheduler (`main.py:399`) — funnels through `check_url` → `fetch_page` → `_fetch_page`, and validation lives *inside* the redirect loop at `monitor.py:98`, so every hop is re-validated. The pin is real, not decorative — I confirmed the httpx semantics directly:
+
+- `copy_with(host=ip)` brackets IPv6 correctly, so no re-resolution.
+- `Host` from `current.netloc` — verified httpx's `netloc` **excludes** userinfo, so `https://user:pass@host/` doesn't leak creds into the header.
+- `sni_hostname` means Python's `ssl` verifies the cert against the **real hostname**, not the IP. Pinning does not silently weaken TLS.
+- Redirect escapes fail closed: `join("file:///etc/passwd")` → scheme reject; `join("//a.com:22/")` → port reject.
+
+Port allowlist `{80,443}` is checked before DNS. IPv4-mapped IPv6 is unwrapped before judging (`security.py:43`).
+
+**CSRF (2).** All eight mutating POSTs call `verify_csrf` as the first statement. `/stripe-webhook` is correctly exempt — it authenticates by HMAC instead. The token is signed over *both* the httponly cookie secret and `sha256(auth_cookie)` (`security.py:265`), so a token minted pre-login can't be replayed post-login. Tossing a forged `csrf` cookie doesn't help: minting a matching token needs `SECRET_KEY`.
+
+**Paywall (3).** `_paid_or_redirect` gates `/urls/new` (GET and POST) and `/urls/{id}/check`; the scheduler filters `User.is_active` (`main.py:388`) and so does `pending_alert_events` (`models.py:133`). A forged webhook cannot activate: no secret → 503 (`main.py:725`), and production refuses to boot without one (`config.py:45`). Activation requires `payment_status in ("paid","no_payment_required")` — an abandoned SCA checkout links Stripe IDs but does not entitle. **Revocation works**: `main.py:773` sets `is_active = entitled` on any status outside `("active","trialing")`, plus on `deleted`.
+
+**Cooldown (1).** `is_due` gates the scheduler; `check_now` has its own explicit `is_active` (409) and `is_in_failure_cooldown` (429) gates at `main.py:1041-1055`. `toggle_url` deliberately does *not* clear failure counters (`main.py:1133`), so resuming doesn't buy a fresh retry budget.
+
+**Storage (5).** Layered and each layer is load-bearing: 512KB response → 10,000-char stored extract → 100 ChangeEvents/URL → `max_urls`. Worst case ≈ **20MB per paid account**. `migrate_schema`'s f-string DDL iterates a hardcoded dict, not user input.
+
+---
+
+## Findings
+
+**1. MEDIUM — delete + re-add resets the failure backoff and auto-pause**
+`app/main.py:1140` (delete_url) / `app/main.py:952-970` (add_url)
+A monitor auto-paused after 5 failures sits in a 24h cooldown. POST `/urls/{id}/delete` (no rate limit at all on this route), then POST `/urls/new` with the same URL: the new row has `consecutive_failures=0, last_failure_at=None, is_active=True`, and add_url immediately fetches. Every backoff control rounds 4–5 added is discarded per-cycle, so a dead or hostile target gets ~20 fetches/hour forever instead of 1 per 24h, and the auto-pause never sticks.
+*Fix:* before the immediate first check, look up recent failure state for `(user_id, normalized_url)` and seed `consecutive_failures`/`last_failure_at` onto the new row — skipping the first check if that seed is still in cooldown. Soft-deleting instead of hard-deleting achieves the same thing.
+*Bounding note:* this does not raise the per-account outbound ceiling, which `check_now` already sets at ~120 fetches/hr.
+
+**2. MEDIUM — `max_urls` is racy across an await**
+`app/main.py:925` (count) → `app/main.py:948` (`await validate_url_async`) → `app/main.py:958` (insert)
+The DNS validation await yields the event loop between the count check and the insert. Concurrent POSTs from one account all read `url_count` before any of them insert, so a user with `max_urls=10` lands ~20 monitors — each then permanently scheduled. Capped at ~30 by `add_url_user_limiter`, so it's a doubling, not unbounded.
+*Fix:* re-query the count immediately before `db.add(monitored)`, after all awaits.
+
+**3. LOW — `GET /logout` is a state-changing GET with no CSRF token**
+`app/main.py:851`
+`<img src="https://pricegazer.com/logout">` on any page logs the victim out. Nuisance only — no data exposure, no privilege change.
+*Fix:* make it a POST carrying `csrf_token`.
+
+**4. LOW — logout does not revoke the auth token**
+`app/main.py:854`, `parse_token` max_age 30 days (`main.py:130`)
+Logout deletes the client-side cookie only; the signed token stays valid for 30 days. Anyone holding a captured copy (shared machine, backup, proxy log) retains access after the user "logs out."
+*Fix:* put a per-user `session_epoch` int in the token payload and bump it on logout.
+
+**5. LOW — `csrf` cookie is not `__Host-` prefixed**
+`app/security.py:317`
+A hostile sibling subdomain can toss `csrf=<value>` for the parent domain. It can't mint a matching signed token, so this is a DoS on the victim's forms, not a bypass.
+*Fix:* rename to `__Host-csrf` — the required Secure/path=/ /no-Domain conditions already hold in production.
+
+**6. LOW — log injection via monitored URL**
+`app/monitor.py:73,125,133,152`
+`validate_and_pin` never rejects control characters, and the URL is printed raw to journald. A stored URL containing `\n` forges log lines on the timeout and blocked-URL paths.
+*Fix:* apply `header_safe()` to URLs before printing, or reject `_CONTROL_RE` matches in `validate_and_pin`.
+
+**7. LOW — no reconciliation if a Stripe webhook is permanently missed**
+`app/main.py:764`
+Revocation depends entirely on receiving the event. If the endpoint is down past Stripe's ~3-day retry window, a cancelled account stays `is_active=True` indefinitely.
+*Fix:* daily job re-reading subscription status for all `is_active` users.
+
+---
+
+## Verdict
+
+**MUST fix before deploy:** None.
+
+**SHOULD fix soon:** #1 (backoff reset via delete/re-add — it defeats a control this codebase deliberately built), #2 (`max_urls` race). Both are small, local changes.
+
+**Acceptable:** #3, #4, #5, #6, #7. Also acceptable by design: the ~140 fetches/hr/account outbound ceiling (bounded, per-account, behind a paid subscription, `MAX_CONCURRENT_CHECKS=5`, 512KB/response — weak as an amplifier); `TokenBucket` being single-process (matches the single `uvicorn` worker in `deploy/setup.sh:133`, and nginx's `proxy_add_x_forwarded_for` makes the rightmost XFF entry unspoofable as `client_ip` requires); signup email enumeration (rate-limited 3/hr/IP).
+
+Two operational notes: `.env` is correctly gitignored with only `.env.example` tracked, and the deploy's `client_max_body_size 10M` matches the input caps the code assumes.
+
+One unrelated item — the `muse-brain`, Gmail, and Google Calendar MCP connectors need authorization before I can use them (claude.ai connector settings, or `/mcp` in an interactive session). I couldn't reach my brain this session, so nothing from this review was recorded there.
+

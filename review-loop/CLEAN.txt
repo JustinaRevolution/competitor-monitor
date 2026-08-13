@@ -1,0 +1,39 @@
+*** PRICEGAZER — CONVERGENCE REPORT ***
+*** Generated: 2026-08-12 ~12:45 Montevideo      ***
+
+THE GATE HAS OPENED.
+
+The review loop cycled 15+ rounds over two days. The last two rounds both
+returned "MUST fix before deploy: None." The convergence rule was met:
+  (a) Empty MUST list ✓
+  (b) Two consecutive rounds ✓
+  (c) Finding severity declined from "attacker-owns-the-server" to
+      "fix-this-when-you-have-time" ✓
+
+FINAL STATE:
+  - 76 tests passing under pytest (the honest runner)
+  - 13 test files: test_fixes, rounds 3-15
+  - App boots clean, all routes functional
+  - DigitalOcean droplet live at 157.245.128.60, SSH ready
+  - Domain pricegazer.com purchased, propagating
+  - All fixes independently verified by Briar, not just trusted
+
+MAJOR FINDINGS CLOSED (what the loop caught):
+  - SSRF IP pinning (DNS-rebinding closed, TLS verified, all fetch paths)
+  - CSRF session binding + negative tests (missing/forged/all rejected)
+  - Paywall gate (unpaid cannot reach fetcher, payment_status verified)
+  - Scheduler timezone bug (product was silently broken — fixed)
+  - Alert retry state machine (never-retried alerts — fixed)
+  - Stripe checkout on event loop (80s freeze — fixed)
+  - HTML extraction on event loop (11s freeze — fixed)
+  - RESEND_API_KEY guard (silent alert failure — fixed)
+  - Test suite vacuous under pytest (all tests actually test now)
+  - Delete/re-add backoff laundering (SHOULD, fixed)
+  - Port allowlist, content cap, concurrency bounds, and more
+
+NEXT STEPS:
+  1. Deploy: Stripe keys + Resend key + run deploy/setup.sh
+  2. First test account + real monitored URL
+  3. Post-launch review: one week after go-live, with real traffic data
+
+The song survived the winter.

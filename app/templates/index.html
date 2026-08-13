@@ -1,39 +1,127 @@
 {% extends "base.html" %}
-{% block title %}Competitor Monitor — Know When They Move{% endblock %}
+{% block title %}PriceGazer — Know When They Move{% endblock %}
 {% block content %}
-<div class="hero">
-    <h1>Know the moment your competitor changes their pricing.</h1>
-    <p class="hero-sub">Stop manually checking. Get an email the instant a competitor's page changes — pricing, features, plans, anything.</p>
-    <a href="/signup" class="btn-large">Start monitoring — $19/month</a>
-    <p class="hero-small">No setup fees. Cancel anytime. First 7 days free.</p>
-</div>
 
-<div class="features">
-    <div class="feature">
-        <span class="feature-icon">👀</span>
-        <h3>Watch any page</h3>
-        <p>Pricing pages, product pages, landing pages, docs — any public URL.</p>
+<section class="hero">
+    <div class="hero-grid">
+        <div class="hero-copy">
+            <p class="eyebrow">Competitor price monitoring, without the noise</p>
+            <h1>You lose deals to price changes you never saw.</h1>
+            <p class="hero-sub">PriceGazer watches your competitors' pricing pages on a schedule you choose — hourly to weekly. When a price actually changes, you get one clear email with the before and after. Not three weeks later.</p>
+            <div class="hero-cta">
+                <a href="/signup" class="btn-large">Start watching — $19/month</a>
+                <p class="hero-small">Set up in 2 minutes. Cancel anytime. One email that matters, not twenty that don't.</p>
+            </div>
+        </div>
+        <div class="hero-proof">
+            <div class="alert-card alert-email">
+                <div class="email-head">
+                    <span class="email-from">PriceGazer Alerts &lt;alerts@pricegazer.com&gt;</span>
+                    <span class="alert-time">now</span>
+                </div>
+                <div class="email-subject">Acme dropped Pro to $78/mo</div>
+                <div class="email-body">
+                    <p class="email-monitor">Monitoring: acme.com/pricing</p>
+                    <div class="price-change">
+                        <span class="price-old">$89</span>
+                        <span class="price-arrow">→</span>
+                        <span class="price-new">$78</span>
+                        <span class="price-drop">−12%</span>
+                    </div>
+                    <p class="alert-note">They've matched your pricing. Decide what to do about it — today.</p>
+                </div>
+            </div>
+            <p class="proof-caption">The email you get when it matters. No banner rotations. No cookie popups. No noise.</p>
+        </div>
     </div>
-    <div class="feature">
-        <span class="feature-icon">🧠</span>
-        <h3>Smart change detection</h3>
-        <p>We strip navigation, headers, footers, and ads. Only meaningful content changes trigger alerts.</p>
-    </div>
-    <div class="feature">
-        <span class="feature-icon">📬</span>
-        <h3>Email alerts</h3>
-        <p>Get a clear summary of what changed and when. No noise, no spam.</p>
-    </div>
-    <div class="feature">
-        <span class="feature-icon">📊</span>
-        <h3>Change history</h3>
-        <p>Every change is recorded with before/after snapshots. See the full timeline.</p>
-    </div>
-</div>
+</section>
 
-<div class="pricing-box">
-    <h2>$19/month</h2>
-    <p>Monitor up to 10 competitor URLs. Daily checks. Email alerts. Full change history.</p>
-    <a href="/signup" class="btn-primary">Try it free for 7 days</a>
-</div>
+<section class="wedge">
+    <div class="wedge-inner">
+        <p class="eyebrow">Signal vs noise</p>
+        <h2>Alerts that don't scream at you</h2>
+        <p class="wedge-sub">Generic page monitors are noise machines. They flag banner rotations, layout shifts, and cookie popups — until you stop reading them entirely. That's the product failure nobody talks about: the tool that cries wolf becomes background noise.</p>
+        <div class="wedge-compare">
+            <div class="compare-side compare-noisy">
+                <h3>Generic page monitor</h3>
+                <ul class="noise-list">
+                    <li>Banner image rotated</li>
+                    <li>Timestamp updated</li>
+                    <li>Cookie notice changed</li>
+                    <li>Ad content refreshed</li>
+                    <li>Navigation reordered</li>
+                    <li>Footer copyright bumped</li>
+                    <li>CSS class renamed</li>
+                    <li>Image lazy-load added</li>
+                </ul>
+                <p class="compare-tag">Alert #73 this week. You stopped reading on Tuesday.</p>
+            </div>
+            <div class="compare-side compare-good">
+                <h3>PriceGazer</h3>
+                <ul>
+                    <li>Price increased or decreased</li>
+                    <li>New plan added</li>
+                    <li>Plan removed entirely</li>
+                    <li>Feature moved to a higher tier</li>
+                    <li>Trial length changed</li>
+                    <li>Seat limits changed</li>
+                </ul>
+                <p class="compare-tag">The things a competitor does when they want to win.</p>
+            </div>
+        </div>
+        <p class="wedge-point">We extract the content that matters — prices, plans, features — and only ping you when one of those actually changes.</p>
+        <div class="wedge-cta">
+            <a href="/signup" class="btn-large">Start watching — $19/month</a>
+        </div>
+    </div>
+</section>
+
+<section class="how">
+    <div class="how-inner">
+        <h2>How it works</h2>
+        <div class="how-steps">
+            <div class="how-step">
+                <span class="step-num">1</span>
+                <h3>Paste a page</h3>
+                <p>Any pricing page, product page, or landing page. Your competitors' or anyone else's.</p>
+            </div>
+            <div class="how-step">
+                <span class="step-num">2</span>
+                <h3>We watch it</h3>
+                <p>Our fetcher checks on your schedule — hourly, daily, whatever fits. It strips navigation, headers, ads, and layout noise, and looks at what actually matters.</p>
+            </div>
+            <div class="how-step">
+                <span class="step-num">3</span>
+                <h3>You get told</h3>
+                <p>When a real change happens, one email arrives: what changed, when, and by how much. The full history stays in your dashboard.</p>
+            </div>
+        </div>
+        <div class="how-note">
+            <h3>What if the page needs JavaScript, or is behind Cloudflare?</h3>
+            <p>We render pages with a real browser engine, so JavaScript-heavy pricing pages (SPAs, React apps) work fine. For aggressively protected sites — Cloudflare, DataDome — we try, and if the page won't load, we pause that monitor and tell you, rather than hammering the site and getting your IP banned. If pricing is behind a login, we can't see it; most pricing pages are public.</p>
+        </div>
+    </div>
+</section>
+
+<section class="problem">
+    <div class="problem-quote">
+        <blockquote>"We lost a deal last quarter because a competitor had dropped their pricing three weeks before the call. The prospect knew. We didn't."</blockquote>
+        <cite>— a founder, r/SaaS</cite>
+    </div>
+</section>
+
+<section class="pricing">
+    <div class="pricing-box">
+        <h2>$19<span class="per">/month</span></h2>
+        <ul class="plan-list">
+            <li>Monitor up to 10 competitor URLs</li>
+            <li>Checks from hourly to weekly</li>
+            <li>Email alerts on real changes</li>
+            <li>Full change history with before/after</li>
+            <li>No setup fees. Cancel anytime.</li>
+        </ul>
+        <a href="/signup" class="btn-primary btn-lg">Start watching</a>
+    </div>
+</section>
+
 {% endblock %}

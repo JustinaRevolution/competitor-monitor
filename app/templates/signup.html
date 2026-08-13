@@ -3,16 +3,26 @@
 {% block content %}
 <div class="auth-form">
     <h2>Start monitoring competitors</h2>
+    {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+    {% if ref %}
+        <p class="referral-note">
+            You were invited — your first month is free. No card charged today.
+        </p>
+    {% endif %}
     <form method="POST" action="/signup">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+        {% if ref %}<input type="hidden" name="ref" value="{{ ref }}">{% endif %}
         <label>
             Email
-            <input type="email" name="email" required placeholder="you@example.com">
+            <input type="email" name="email" required maxlength="254" placeholder="you@example.com">
         </label>
         <label>
             Password
             <input type="password" name="password" required minlength="8" placeholder="At least 8 characters">
         </label>
-        <button type="submit" class="btn-primary">Create account — $19/month</button>
+        <button type="submit" class="btn-primary">
+            {% if ref %}Create account — first month free{% else %}Create account — $19/month{% endif %}
+        </button>
     </form>
     <p class="auth-alt">Already have an account? <a href="/login">Log in</a></p>
 </div>

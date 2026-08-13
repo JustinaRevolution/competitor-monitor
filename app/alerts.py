@@ -7,7 +7,8 @@ import os
 
 import httpx
 
-from app.config import RESEND_API_KEY, FROM_EMAIL
+from app.config import RESEND_API_KEY, FROM_EMAIL, IS_PRODUCTION
+from app.security import header_safe
 
 
 async def send_change_alert(
@@ -18,8 +19,12 @@ async def send_change_alert(
     pricing_changes: str = "",
 ) -> bool:
     """Send an email alert about a detected change. Returns True on success."""
-    subject = f"🚨 Change detected: {url_label}"
-    
+    # The label is user-supplied and lands in a header. A newline in it is an
+    # attempt to append headers of the attacker's choosing at Resend, so it
+    # never reaches the subject line intact — not even from an old row stored
+    # before the label was validated at input.
+    subject = f"🚨 Change detected: {header_safe(url_label)}"
+
     body_parts = [f"Your monitored page has changed!\n"]
     body_parts.append(f"Label: {url_label}")
     body_parts.append(f"URL: {url}")
@@ -44,7 +49,7 @@ async def send_welcome_email(to_email: str) -> bool:
     """Send a welcome/onboarding email."""
     subject = "Your competitor monitor is set up!"
     body = (
-        "Welcome to Competitor Monitor!\n\n"
+        "Welcome to PriceGazer!\n\n"
         "You're all set. We'll watch your competitor pages and alert you "
         "whenever something changes.\n\n"
         "Add your first URL from the dashboard:\n"
@@ -59,7 +64,12 @@ async def _send_email(to: str, subject: str, body: str) -> bool:
     if not RESEND_API_KEY:
         print(f"[EMAIL] Would send to {to}: {subject}")
         print(f"[EMAIL] Body:\n{body[:500]}...")
-        return True  # Dev mode — pretend success
+        # Dev mode pretends success so the app is usable without a Resend
+        # account. In production that lie is unrecoverable — the caller marks
+        # the change alerted and nothing ever revisits it — so report failure
+        # and let the retry sweep hold the event. config.py refuses to boot in
+        # this state at all; this is the second line of defence.
+        return not IS_PRODUCTION
 
     try:
         async with httpx.AsyncClient() as client:

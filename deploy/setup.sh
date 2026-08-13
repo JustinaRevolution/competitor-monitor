@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Competitor Monitor — One-Command Deployment Script
+# PriceGazer — One-Command Deployment Script
 # ============================================================
 # Usage on a fresh Ubuntu 22.04/24.04 VPS:
 #
@@ -24,7 +24,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}============================================${NC}"
-echo -e "${BLUE}  Competitor Monitor — Server Setup${NC}"
+echo -e "${BLUE}  PriceGazer — Server Setup${NC}"
 echo -e "${BLUE}============================================${NC}"
 echo ""
 
@@ -40,7 +40,7 @@ fi
 
 # ---- Collect configuration ----
 echo -e "${GREEN}Step 1: Configuration${NC}"
-echo "Enter your domain (e.g., page-diff.com):"
+echo "Enter your domain (e.g., pricegazer.com):"
 read -p "> " DOMAIN_NAME
 
 echo ""
@@ -58,6 +58,12 @@ read -p "> " STRIPE_PUBLISHABLE_KEY
 echo ""
 echo "Enter your Stripe Price ID (price_... for $19/mo product):"
 read -p "> " STRIPE_PRICE_ID
+
+echo ""
+echo "Enter your Stripe Webhook Signing Secret (whsec_...):"
+echo "  Stripe Dashboard → Developers → Webhooks → your https://${DOMAIN_NAME}/stripe-webhook endpoint."
+echo "  Required — without it the app refuses to start and /stripe-webhook rejects every event."
+read -p "> " STRIPE_WEBHOOK_SECRET
 
 echo ""
 echo "Enter your email address for Let's Encrypt SSL notifications:"
@@ -94,11 +100,14 @@ SECRET_KEY=${SECRET_KEY}
 DATABASE_URL=sqlite:///${APP_DIR}/data/monitor.db
 APP_URL=https://${DOMAIN_NAME}
 
+# Secure cookies, strict startup checks, and trust nginx's X-Forwarded-For.
+APP_ENV=production
+
 # Stripe
 STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
 STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
 STRIPE_PRICE_ID=${STRIPE_PRICE_ID}
-STRIPE_WEBHOOK_SECRET=
+STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
 
 # Email (Resend)
 RESEND_API_KEY=${RESEND_API_KEY}
@@ -112,7 +121,7 @@ chmod 600 $APP_DIR/.env
 echo -e "${GREEN}Step 6: Creating systemd service...${NC}"
 cat > /etc/systemd/system/competitor-monitor.service << EOF
 [Unit]
-Description=Competitor Monitor
+Description=PriceGazer
 After=network.target
 
 [Service]

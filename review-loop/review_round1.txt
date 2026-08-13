@@ -1,0 +1,85 @@
+Repo untouched — all mutation and probe work ran on a throwaway copy in `/tmp`, now deleted.
+
+# Sixth-Round Review — PriceGazer
+
+**Method:** read every source file; enumerated all 8 mutating routes and all 3 fetch entry points; ran 10 targeted mutants against the suite; ran 37 live adversarial probes against a real `TestClient` app with `REQUIRE_PAID_ACCOUNT=True`; parser-differential fuzzed the SSRF validator against httpx.
+
+**Headline: no MUST-fix items.** The five previously-fixed control families all hold under direct attack. Findings below are all Low.
+
+---
+
+## Answers to your six questions
+
+**1) Backoff/cooldown — no bypass on any of the three paths.** Live-probed: `check_now` inside a failure cooldown → 429 **with zero outbound fetch** (I spied `_bounded_check_url`); on an auto-paused monitor → 409, also zero fetches; `toggle` does not reset `consecutive_failures` (still 5 after resume), and a resumed monitor is *still* refused with 429. Scheduler gates on `MonitoredUrl.is_due()` (`models.py:231`) which folds both the interval and the cooldown into one predicate, so they can't drift. `add_url`'s first check is on a fresh row (no history to bypass) and is capped per-IP *and* per-account at 20/hr. Mutating `is_in_failure_cooldown` → `return False` kills 3 tests.
+
+**2) CSRF — no forged or missing token passes anywhere.** All 8 POST routes call `verify_csrf` first; `/stripe-webhook` correctly uses signature verification instead. Probed all six mutating routes with no token → 403; garbage token → 403; a token minted for a *different* browser's cookie jar → 403; a token minted pre-login and replayed post-login → 403 (session binding works — `csrf_binding_for_auth` at `security.py:248`). Every form in every template carries the hidden field. Missing/short CSRF cookie fails closed. Mutating `verify_csrf` to a no-op kills 2 tests; mutating away *just* the session-binding half kills 1.
+
+**3) Paywall — no unpaid or anonymous path reaches the fetcher, and revocation works.** Unpaid user: `GET /urls/new` → `/billing`, `POST /urls/new` → `/billing`, `POST /urls/{id}/check` → `/billing`, all with no fetch. Anonymous → `/login`. Forged webhooks (no signature, bad signature) → 400, account stays unpaid. A *validly signed* `checkout.session.completed` with `payment_status: unpaid` does **not** activate. Revocation confirmed for all six statuses: `past_due`/`unpaid`/`canceled`/`paused` → `is_active=False`; `active`/`trialing` → `True`; `subscription.deleted` → revoked. `config.py:38-72` refuses to boot in production in any config where billing is half-configured. IDOR: another user's GET/check/delete on a victim URL → 404 in all three cases.
+
+**4) SSRF pinning holds, and it is structurally unbypassable.** Validation is not at the call sites — it's inside `_fetch_page` at `monitor.py:98`, re-run on *every* redirect hop, so all three entry points (`add_url`, `check_now`, scheduler) inherit it whether they remember to or not. The connection target is always `_pinned_url(current, ip)` — a literal IP — so even if a parser disagreed with the validator, the differential can only mis-set SNI/Host, never the socket destination. I confirmed userinfo is stripped from the Host header (`user:pass@example.com` → Host `example.com`) and IPv6 is bracketed correctly. Parser-differential fuzzing over 23 hostile URLs (octal/decimal/hex IPs, `::ffff:127.0.0.1`, userinfo confusion, backslash and tab injection, zero-width-space and circled-digit IDNA, `metadata.google.internal`, port 22) found 4 urlparse-vs-httpx mismatches — **all fail-closed** (validator allows, httpx refuses to dial). Mutating `_ip_is_disallowed` or the port allowlist each kills 2 tests.
+
+**5) Storage caps hold.** Every user-influenced string is bounded: page content 10k chars (`monitor.py:46`), `diff_summary` structurally ≤ ~1.3 KB (max 12 lines × 122 chars), URL 2048, label 200, `last_error`/`paused_reason` 255, email 254. `prune_change_events` is called on both — and only — code paths that insert a `ChangeEvent`. **Ceiling: ~2.2 MB per URL × `max_urls`(10) ≈ 22 MB per paid account**, and `max_urls` isn't user-settable. Unpaid accounts can't create a `MonitoredUrl` at all, so anonymous disk pressure is 3 user rows/hr/IP at ~400 bytes. Deletes cascade. Mutating `prune_change_events` to a no-op kills 2 tests.
+
+**6) Tests genuinely cover the claims. 67/67 pass; 10/10 mutants killed.** The vacuous-pass problem is properly fixed: `tests/conftest.py` promotes each module's recorded `check()` failures into a real assertion failure during the *call* phase. I verified non-vacuity independently by disabling each control in a copy of the tree — `verify_csrf`, the CSRF session binding, `_ip_is_disallowed`, the port allowlist, `is_in_failure_cooldown`, `_paid_or_redirect`, `prune_change_events`, interval validation, the webhook `settled` check, and entitlement revocation. Every single one produced failures. There is also a real end-to-end pinning test against a live local server asserting the Host header and the pinned destination (`test_fixes.py:183-223`).
+
+---
+
+## Findings
+
+**1. Low — `GET /logout` is a state-changing GET with no CSRF token.** `app/main.py:851-855`
+*Exploit:* `<img src="https://pricegazer.com/logout">` on any page silently logs the victim out. Confirmed live: 303 + cookie deletion, no token required. Nuisance-grade only — no data or privilege impact.
+*Fix:* make it `POST` with `verify_csrf`, like the other mutating routes.
+
+**2. Low — no server-side session revocation; the auth cookie outlives logout.** `app/main.py:107-115, 851-855`
+*Exploit:* a token captured before logout stays valid for its full 30 days, because logout only deletes the client-side cookie. There's no password-change route, so there's no way to cut a stolen session.
+*Fix:* add a `session_epoch` integer on `User`, sign it into the token, and bump it on logout/password change.
+
+**3. Low — the failure backoff can be reset by delete-and-re-add.** `app/main.py:892-974`
+*Exploit:* a paid account whose monitor has auto-paused against a dead or hostile target deletes the row and re-adds the same URL, getting a fresh immediate fetch and a zeroed failure counter. The backoff's intended floor of ~1 fetch/day drops to the `add_url` ceiling of 20/hr. Bounded, and requires a paying account, so it's an amplification ceiling rather than a bypass.
+*Fix:* if it's worth closing, key a short cooldown on `(user_id, url)` that survives row deletion.
+
+**4. Low — per-IP rate limits are consumed before authentication.** `app/main.py:1009` (auth at `:1012`), same shape at `:901`
+*Exploit:* an unauthenticated visitor with their own CSRF pair (trivially obtainable) can drain the per-IP `check_now` (10/5min) and `add_url` (20/hr) buckets. Since the IP can't be spoofed past nginx's `$proxy_add_x_forwarded_for`, this only affects people sharing the attacker's egress IP — i.e. a paying customer behind the same corporate NAT.
+*Fix:* move `enforce_rate_limit` below the `_paid_or_redirect` gate on these two routes; keep the per-user limiter where it is.
+
+**5. Low — unhandled `IntegrityError` on concurrent duplicate signup.** `app/main.py:553`
+*Exploit:* two simultaneous signups for the same email both pass the `existing` check; the second `db.commit()` hits the UNIQUE constraint and returns a 500 instead of "Email already registered."
+*Fix:* wrap the commit in `try/except IntegrityError` → rollback → render the existing-email error.
+
+**6. Low — unvalidated `int()` on webhook metadata.** `app/main.py:745`
+*Exploit:* a `checkout.session.completed` whose `metadata.user_id` isn't numeric raises `ValueError` → 500 → Stripe retries the event indefinitely. Only reachable by Stripe (signature is verified first), so this is robustness, not attack surface.
+*Fix:* `try: uid = int(user_id) except ValueError: uid = None`.
+
+**7. Low — no security headers from nginx.** `deploy/setup.sh:154-166`
+No HSTS, CSP, `X-Frame-Options`, or `X-Content-Type-Options`. There's no XSS sink today (Jinja autoescape is on, no `|safe` anywhere, `url.url` is scheme-restricted to http/https), so this is pure defense-in-depth.
+*Fix:* add `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and a `default-src 'self'` CSP to the 443 block.
+
+**8. Low — dead, subtly-broken helper.** `app/main.py:463-467`
+`require_user` is defined and never used; it raises `HTTPException(303, headers=...)` rather than returning a `RedirectResponse`, so if anyone ever wires it up it'll emit a JSON body with a redirect status.
+*Fix:* delete it.
+
+---
+
+## MUST fix before deploy
+
+**None.**
+
+## SHOULD fix soon
+
+- **#1** `GET /logout` → POST + CSRF (smallest fix here, closes a real if minor forgery).
+- **#5** duplicate-signup 500 — user-visible on any real signup burst.
+- **#7** nginx security headers.
+- **#2** session revocation — matters the first time you add a password-reset flow.
+- **#4** rate-limit ordering, **#6** webhook `int()`, **#8** dead code.
+
+## Acceptable
+
+- **Email enumeration via signup** ("Email already registered") — rate-limited to 3/hr/IP; login is properly equalized with `_dummy_verify_async`, which is the path that actually matters.
+- **In-memory single-process rate limiter** (`security.py:347`) — correct for the `--host 127.0.0.1`, single-worker systemd unit in `deploy/setup.sh:133`. **Footgun:** adding `--workers N` silently multiplies every limit by N. Worth a comment in the unit file.
+- **Concurrent `check_now` on one URL** — no per-URL lock, so two simultaneous clicks can produce a duplicate `ChangeEvent` and a duplicate email. Bounded by the rate limiter; duplicate alerts are the benign failure direction.
+- **Aggregate outbound budget per paid account** ≈150 fetches/hr × ≤512 KB ≈ 75 MB/hr, concentrable on one victim by pointing all 10 monitors at it. Not meaningful amplification.
+- **`run_scheduled_checks` loads all active URLs into memory** and checks them sequentially — a scaling limit, not a security one.
+- **Password guessing across many source IPs** — 5/5min per IP with no per-account lockout. Standard tradeoff; bcrypt is the real control.
+
+One process note: the prompt described this as round 6 with tests through `test_round5.py`, but the tree actually carries `test_round3` and `test_round5` through `test_round13`. The extra rounds are where several things I probed for (the `payment_status` settlement check, port allowlisting, the `conftest.py` vacuous-pass fix) were already handled.
+

@@ -1,11 +1,53 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — Competitor Monitor{% endblock %}
+{% block title %}Dashboard — PriceGazer{% endblock %}
 {% block content %}
 <div class="dashboard">
     <div class="dash-header">
         <h2>Your monitored pages</h2>
-        <a href="/urls/new" class="btn-primary">+ Add URL</a>
+        {% if is_paid %}
+            <a href="/urls/new" class="btn-primary">+ Add URL</a>
+        {% else %}
+            <a href="/billing" class="btn-primary">Start subscription</a>
+        {% endif %}
     </div>
+
+    {% if welcome_referral %}
+        <div class="referral-banner">
+            <strong>Welcome — your first month is on us.</strong>
+            <p>Add your competitor pages and start monitoring. Nothing to pay today.</p>
+        </div>
+    {% endif %}
+
+    {% if on_trial %}
+        <div class="trial-banner">
+            <strong>Free month active{% if trial_ends_at %} until {{ trial_ends_at.strftime('%b %d, %Y') }}{% endif %}.</strong>
+            <p>Subscribe any time to keep monitoring after it ends.</p>
+            <a href="/billing">Set up billing →</a>
+        </div>
+    {% elif not is_paid %}
+        <div class="paywall-banner">
+            <strong>Your subscription isn't active yet.</strong>
+            <p>{{ paywall_message }}</p>
+            <a href="/billing" class="btn-primary">Subscribe — $19/month</a>
+        </div>
+    {% endif %}
+
+    {% if referral %}
+        <div class="referral-card">
+            <h3>Give a month, get a month</h3>
+            <p>
+                Share your link. Your friend's first {{ referral_trial_days }} days are free,
+                and you bank a free month once they subscribe.
+            </p>
+            <input class="referral-link" type="text" readonly value="{{ referral.link }}"
+                   onclick="this.select()">
+            <div class="referral-stats">
+                <span><strong>{{ referral.signups }}</strong> signed up</span>
+                <span><strong>{{ referral.converted }}</strong> subscribed</span>
+                <span><strong>{{ referral.credit_months }}</strong> free month(s) banked</span>
+            </div>
+        </div>
+    {% endif %}
 
     {% if urls %}
         <div class="url-list">
@@ -14,12 +56,20 @@
                     <div class="url-card-header">
                         <h3>{{ url.label }}</h3>
                         <span class="badge {% if url.is_active %}active{% else %}paused{% endif %}">
-                            {{ "Active" if url.is_active else "Paused" }}
+                            {% if url.is_active %}Active{% elif url.paused_reason %}Auto-paused{% else %}Paused{% endif %}
                         </span>
                     </div>
                     <p class="url-target">{{ url.url }}</p>
+                    {% if url.paused_reason %}
+                        <p class="url-warning">⚠ {{ url.paused_reason }}</p>
+                    {% elif url.consecutive_failures %}
+                        <p class="url-warning">
+                            ⚠ {{ url.consecutive_failures }} failed check(s) — {{ url.last_error }}.
+                            Backing off before the next try.
+                        </p>
+                    {% endif %}
                     <div class="url-meta">
-                        <span>Checks every {{ url.check_interval_hours }}h</span>
+                        <span>Checks every {{ url.effective_interval_hours }}h</span>
                         <span>{{ url.changes|length }} changes detected</span>
                         {% if url.last_checked_at %}
                             <span>Last checked: {{ url.last_checked_at.strftime('%b %d, %H:%M') }}</span>
@@ -27,11 +77,21 @@
                     </div>
                     <div class="url-actions">
                         <a href="/urls/{{ url.id }}">View history</a>
-                        <a href="/urls/{{ url.id }}/check" class="action-check">Check now</a>
-                        <a href="/urls/{{ url.id }}/toggle" class="action-toggle">
-                            {{ "Pause" if url.is_active else "Resume" }}
-                        </a>
-                        <a href="/urls/{{ url.id }}/delete" class="action-delete" onclick="return confirm('Delete this URL?')">Delete</a>
+                        {% if is_paid %}
+                            <form method="POST" action="/urls/{{ url.id }}/check" class="inline-form">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+                                <button type="submit" class="action-check">Check now</button>
+                            </form>
+                        {% endif %}
+                        <form method="POST" action="/urls/{{ url.id }}/toggle" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+                            <button type="submit" class="action-toggle">{{ "Pause" if url.is_active else "Resume" }}</button>
+                        </form>
+                        <form method="POST" action="/urls/{{ url.id }}/delete" class="inline-form"
+                              onsubmit="return confirm('Delete this URL?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+                            <button type="submit" class="action-delete">Delete</button>
+                        </form>
                     </div>
 
                     {% if url.changes %}
@@ -51,8 +111,13 @@
     {% else %}
         <div class="empty-state">
             <p>You haven't added any competitor pages yet.</p>
-            <p>Add your first URL to start monitoring.</p>
-            <a href="/urls/new" class="btn-primary">+ Add your first URL</a>
+            {% if is_paid %}
+                <p>Add your first URL to start monitoring.</p>
+                <a href="/urls/new" class="btn-primary">+ Add your first URL</a>
+            {% else %}
+                <p>Subscribe to add your first page and start monitoring.</p>
+                <a href="/billing" class="btn-primary">Subscribe — $19/month</a>
+            {% endif %}
         </div>
     {% endif %}
 </div>

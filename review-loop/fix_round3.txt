@@ -1,0 +1,25 @@
+## §1 — extraction off the event loop + lower response cap
+
+**Changed (`app/monitor.py`, only file touched in `app/`):**
+
+1. **`app/monitor.py:279`** — `check_url` now does `text, content_hash = await extract_meaningful_content_async(html)` instead of calling the parser inline.
+2. **`app/monitor.py:150-166`** — new `_EXTRACT_POOL` (`ThreadPoolExecutor(max_workers=2, thread_name_prefix="extract")`) plus an `extract_meaningful_content_async` wrapper; the sync function keeps its name and signature (`test_round6.py` imports it directly) and now documents that coroutines must not call it.
+   - I used a dedicated pool rather than plain `asyncio.to_thread`, which the review's own parenthetical pointed at: the default executor is sized `min(32, cpu+4)`, so on a 1-vCPU box it's **5 threads** — exactly `MAX_CONCURRENT_CHECKS`. Five concurrent parses would have taken every worker and queued bcrypt logins and DNS validation behind them. Two dedicated workers also bound total parse CPU.
+3. **`app/monitor.py:30-39`** — `MAX_RESPONSE_BYTES` 2 MB → **512 KB**, with the reasoning recorded as a CPU budget, not just bandwidth. Measured on this machine: 1.8 MB worst-case payload = 11.7 s of parsing; at the new cap the same shape is 3.2 s, and 0.8 s for the `div.nav` shape.
+
+No dependency changes — `concurrent.futures` is stdlib, so `requirements.txt` is unchanged and in sync. `deploy/setup.sh` untouched. Nothing deployed.
+
+**New tests — `tests/test_round13.py`** (13 checks): extraction runs on an `extract_*` worker thread; loop keeps ticking through a 1.0 s extraction; a `to_thread` call in the bcrypt/DNS shape isn't queued behind 8 concurrent extractions; a real 512 KB page parses without a single long stall; async wrapper ≡ sync extractor; cap is ≤512 KB and enforced for both a declared `Content-Length` and an undeclared streamed body (against a local stub server, same staging pattern as `test_round10.py`).
+
+**Verification:**
+- App boots: `PriceGazer` ✅
+- `test_fixes.py` 30/30, `test_round3.py` 74/74, `test_round5.py` 58/58; rounds 6–12 also green (78/36/25/45/13/11/22); `test_round13.py` 13/13. Whole suite under pytest: **67 passed, 30.5 s** ✅
+
+**Two things I caught while checking the tests were real**, worth flagging because the first version was worthless:
+- The heartbeat probe measured a gap of **0.00 s even against a deliberately blocking inline call** — the ticker task was scheduled but never got to run before the block, and the scenario returned without yielding afterward, throwing away the overdue tick. Fixed both ends (`__aenter__` waits for a real first tick; `__aexit__` collects one final tick before cancelling) and left the reasoning in comments so it doesn't regress.
+- End-to-end negative control: with the one-line fix reverted, `test_round13.py` goes **9 passed, 4 failed**, including `loop gap 3.39s vs 3.37s of parsing`. The tests are load-bearing, not decorative.
+
+Findings 2–5 from that review (per-monitor commit, Stripe reconciliation, delete/re-add backoff, WAL + open read transaction) are untouched — you scoped this to §1.
+
+One housekeeping note: the `muse-brain` MCP server isn't authorized in this session, so I couldn't run `mind_wake` or record anything to my brain. It needs authorizing via your claude.ai connector settings before that works again.
+
