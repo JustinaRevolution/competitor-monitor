@@ -12,5 +12,10 @@ venv/
 # App data
 data/
 
+# Review-loop state and output (keep run_loop.py, ignore its artifacts)
+review-loop/*.log
+review-loop/SESSION_LIMIT
+review-loop/CLEAN.txt
+
 # OS
 .DS_Store
