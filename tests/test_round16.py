@@ -23,6 +23,15 @@ referrer, once, no matter how often Stripe retries the event.
 
 R6 — migrate_schema backfills a referral_code onto accounts that predate the
 program, and makes the column unique.
+
+R7 — a referrer may have at most REFERRAL_MAX_PENDING trials outstanding; the
+next code redemption grants nothing until one converts or is revoked.
+
+R8 — a refunded or disputed friend payment revokes the referrer's banked month,
+idempotently, and a later re-payment re-earns it.
+
+R9 — migrate_schema adds the referral_redemptions.ever_credited_at column to a
+pre-existing database.
 """
 
 import os
@@ -43,10 +52,11 @@ import app.main as main  # noqa: E402
 import app.models as models  # noqa: E402
 from app.models import (  # noqa: E402
     Base, MonitoredUrl, ReferralRedemption, User,
-    REFERRAL_CODE_LEN, REFERRAL_TRIAL_DAYS,
+    REFERRAL_CODE_LEN, REFERRAL_MAX_PENDING, REFERRAL_TRIAL_DAYS,
     credit_referrer_for_payment, ensure_referral_code, entitled_user_clause,
     generate_referral_code, get_session, migrate_schema, normalize_referral_code,
-    referral_trial_active, resolve_referrer, user_is_paid, utcnow,
+    referral_trial_active, resolve_referrer, revoke_referrer_credit, user_is_paid,
+    utcnow,
 )
 
 PASS, FAIL = [], []
@@ -501,6 +511,388 @@ def test_migration_backfills_referral_codes():
         db.close()
 
 
+# ----------------------------------- (R7) the pending-trial cap is enforced
+
+def test_pending_referral_cap_blocks_farming():
+    print("\n[R7] A referrer with REFERRAL_MAX_PENDING trials outstanding grants no more")
+    engine = fresh_db()
+    referrer_id, code = make_user(engine, "r16-cap-referrer@test.local")
+
+    def signup_via_code(email):
+        # One client per signup so each gets a full rate-limit bucket.
+        with _Client(engine) as client:
+            return do_signup(client, email, ref=code)
+
+    def pending_count():
+        db = get_session(engine)
+        try:
+            return db.query(ReferralRedemption).filter(
+                ReferralRedemption.referrer_id == referrer_id,
+                ReferralRedemption.ever_credited_at == None).count()  # noqa: E711
+        finally:
+            db.close()
+
+    # Fill the referrer's pending allowance.
+    for i in range(REFERRAL_MAX_PENDING):
+        r = signup_via_code(f"r16-cap-friend{i}@test.local")
+        check(f"R7 friend {i + 1} is granted a trial while slots remain",
+              r.status_code == 303
+              and r.headers["location"].startswith("/dashboard?welcome=referral"),
+              f"{r.status_code} → {r.headers.get('location')}")
+    check("R7 the referrer now has REFERRAL_MAX_PENDING pending trials",
+          pending_count() == REFERRAL_MAX_PENDING, str(pending_count()))
+
+    # The next redemption must grant nothing, like an unknown code.
+    r = signup_via_code("r16-cap-overflow@test.local")
+    check("R7 an overflow signup is still created",
+          r.status_code == 303)
+    db = get_session(engine)
+    try:
+        overflow = db.query(User).filter(
+            User.email == "r16-cap-overflow@test.local").one()
+        check("R7 …but with no free month", overflow.trial_ends_at is None)
+        check("R7 …and no referrer link", overflow.referred_by_id is None)
+        check("R7 …and no redemption row",
+              db.query(ReferralRedemption).filter(
+                  ReferralRedemption.referred_user_id == overflow.id).count() == 0)
+        check("R7 resolve_referrer itself refuses the overflow",
+              resolve_referrer(db, code) is None)
+    finally:
+        db.close()
+
+    # A conversion frees a slot: credit the first friend, then a new signup lands.
+    db = get_session(engine)
+    try:
+        first = db.query(User).filter(
+            User.email == "r16-cap-friend0@test.local").one()
+        credit_referrer_for_payment(db, first)
+        db.commit()
+        check("R7 converting one referral drops pending below the cap",
+              pending_count() == REFERRAL_MAX_PENDING - 1, str(pending_count()))
+        check("R7 resolve_referrer accepts the code again",
+              getattr(resolve_referrer(db, code), "id", None) == referrer_id)
+    finally:
+        db.close()
+
+    r = signup_via_code("r16-cap-freed@test.local")
+    check("R7 a freed slot grants the next referral its trial",
+          r.status_code == 303
+          and r.headers["location"].startswith("/dashboard?welcome=referral"),
+          f"{r.status_code} → {r.headers.get('location')}")
+
+    # Revoking a credit must NOT free the slot again — the trial was already
+    # granted, so re-counting it as pending would let pay→farm→dispute cycle.
+    db = get_session(engine)
+    try:
+        freed = db.query(User).filter(
+            User.email == "r16-cap-freed@test.local").one()
+        # In production the credit comes from the Stripe webhook; mimic it.
+        credit_referrer_for_payment(db, freed)
+        db.commit()
+        check("R7 crediting the freed referral drops pending again",
+              pending_count() == REFERRAL_MAX_PENDING - 1, str(pending_count()))
+        revoke_referrer_credit(db, freed)
+        db.commit()
+        check("R7 revoking does not re-add the trial to pending",
+              pending_count() == REFERRAL_MAX_PENDING - 1, str(pending_count()))
+        check("R7 resolve_referrer stays under the cap after the revoke",
+              getattr(resolve_referrer(db, code), "id", None) == referrer_id)
+    finally:
+        db.close()
+
+    # A lapsed trial no longer occupies a slot: expire one, then a new signup lands.
+    db = get_session(engine)
+    try:
+        friend2 = db.query(User).filter(
+            User.email == "r16-cap-friend2@test.local").one()
+        friend2.trial_ends_at = utcnow() - timedelta(minutes=1)
+        db.commit()
+        check("R7 an expired trial no longer counts as pending",
+              pending_count() == REFERRAL_MAX_PENDING - 1, str(pending_count()))
+        check("R7 resolve_referrer accepts the code after the lapse",
+              getattr(resolve_referrer(db, code), "id", None) == referrer_id)
+    finally:
+        db.close()
+
+    r = signup_via_code("r16-cap-expired-freed@test.local")
+    check("R7 the expired slot grants the next referral its trial",
+          r.status_code == 303
+          and r.headers["location"].startswith("/dashboard?welcome=referral"),
+          f"{r.status_code} → {r.headers.get('location')}")
+
+
+# -------------------------------- (R8) refund/dispute revokes the banked month
+
+def test_refund_revokes_referrer_credit():
+    print("\n[R8] A refunded or disputed friend payment un-banks the referrer's month")
+    engine = fresh_db()
+    referrer_id, code = make_user(engine, "r16-revoke-referrer@test.local")
+
+    with _Client(engine) as client:
+        do_signup(client, "r16-revoke-friend@test.local", ref=code)
+    db = get_session(engine)
+    try:
+        friend_id = db.query(User).filter(
+            User.email == "r16-revoke-friend@test.local").one().id
+    finally:
+        db.close()
+
+    real = (main.engine, main.STRIPE_WEBHOOK_SECRET, stripe.Webhook.construct_event)
+    main.engine = engine
+    main.STRIPE_WEBHOOK_SECRET = "whsec_test_round16"
+    try:
+        client = TestClient(main.app)
+        client.__enter__()
+
+        def post_event(event_type, customer, **extra):
+            stripe.Webhook.construct_event = _webhook_event({
+                "type": event_type,
+                "data": {"object": {"customer": customer, **extra}},
+            })
+            return client.post("/stripe-webhook", content=b"{}",
+                               headers={"stripe-signature": "t=1,v1=valid"})
+
+        def credits():
+            return load(engine, referrer_id).referral_credit_months
+
+        # Settle the friend's payment → referrer banks a month.
+        stripe.Webhook.construct_event = _webhook_event({
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "payment_status": "paid",
+                "customer": f"cus_r16_{friend_id}",
+                "subscription": f"sub_r16_{friend_id}",
+                "metadata": {"user_id": str(friend_id)},
+            }},
+        })
+        client.post("/stripe-webhook", content=b"{}",
+                    headers={"stripe-signature": "t=1,v1=valid"})
+        check("R8 the settled payment banks one month",
+              credits() == 1, str(credits()))
+
+        # Refund it — the month comes back.
+        r = post_event("charge.refunded", f"cus_r16_{friend_id}", refunded=True)
+        check("R8 the refund webhook is accepted", r.status_code == 200)
+        check("R8 the refund revokes the banked month",
+              credits() == 0, str(credits()))
+
+        # Replaying the same refund must not decrement below zero.
+        post_event("charge.refunded", f"cus_r16_{friend_id}", refunded=True)
+        post_event("charge.refunded", f"cus_r16_{friend_id}", refunded=True)
+        check("R8 replays of the refund stay at zero",
+              credits() == 0, str(credits()))
+
+        # A PARTIAL refund must not revoke at all: settle again, refund partially.
+        stripe.Webhook.construct_event = _webhook_event({
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "payment_status": "paid",
+                "customer": f"cus_r16_{friend_id}",
+                "subscription": f"sub_r16_{friend_id}",
+                "metadata": {"user_id": str(friend_id)},
+            }},
+        })
+        client.post("/stripe-webhook", content=b"{}",
+                    headers={"stripe-signature": "t=1,v1=valid"})
+        stripe.Webhook.construct_event = _webhook_event({
+            "type": "charge.refunded",
+            "data": {"object": {"customer": f"cus_r16_{friend_id}",
+                                "refunded": False, "amount_refunded": 100}},
+        })
+        client.post("/stripe-webhook", content=b"{}",
+                    headers={"stripe-signature": "t=1,v1=valid"})
+        check("R8 a partial refund leaves the banked month intact",
+              credits() == 1, str(credits()))
+        # Reset: fully refund to clear it before the dispute test.
+        stripe.Webhook.construct_event = _webhook_event({
+            "type": "charge.refunded",
+            "data": {"object": {"customer": f"cus_r16_{friend_id}",
+                                "refunded": True}},
+        })
+        client.post("/stripe-webhook", content=b"{}",
+                    headers={"stripe-signature": "t=1,v1=valid"})
+        check("R8 the follow-up full refund revokes it",
+              credits() == 0, str(credits()))
+
+        # A dispute with no prior refund must revoke on its own.
+        stripe.Webhook.construct_event = _webhook_event({
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "payment_status": "paid",
+                "customer": f"cus_r16_{friend_id}",
+                "subscription": f"sub_r16_{friend_id}",
+                "metadata": {"user_id": str(friend_id)},
+            }},
+        })
+        client.post("/stripe-webhook", content=b"{}",
+                    headers={"stripe-signature": "t=1,v1=valid"})
+        check("R8 settle again for the dispute test", credits() == 1, str(credits()))
+        stripe.Webhook.construct_event = _webhook_event({
+            "type": "charge.dispute.created",
+            "data": {"object": {
+                "status": "needs_response",
+                "charge": {"customer": f"cus_r16_{friend_id}"},
+            }},
+        })
+        r = client.post("/stripe-webhook", content=b"{}",
+                        headers={"stripe-signature": "t=1,v1=valid"})
+        check("R8 dispute.created alone revokes the month",
+              r.status_code == 200 and credits() == 0, str(credits()))
+
+        # A dispute we WIN restores the credit.
+        stripe.Webhook.construct_event = _webhook_event({
+            "type": "charge.dispute.closed",
+            "data": {"object": {
+                "status": "won",
+                "charge": {"customer": f"cus_r16_{friend_id}"},
+            }},
+        })
+        r = client.post("/stripe-webhook", content=b"{}",
+                        headers={"stripe-signature": "t=1,v1=valid"})
+        check("R8 a won dispute restores the banked month",
+              r.status_code == 200 and credits() == 1, str(credits()))
+
+        # A dispute we LOSE keeps the charge gone; a replay of a won .closed
+        # event is a no-op (it cannot re-credit a row that never revoked).
+        stripe.Webhook.construct_event = _webhook_event({
+            "type": "charge.dispute.closed",
+            "data": {"object": {
+                "status": "lost",
+                "charge": {"customer": f"cus_r16_{friend_id}"},
+            }},
+        })
+        r = client.post("/stripe-webhook", content=b"{}",
+                        headers={"stripe-signature": "t=1,v1=valid"})
+        check("R8 a lost .closed event is accepted and leaves the credit as-is",
+              r.status_code == 200 and credits() == 1, str(credits()))
+        stripe.Webhook.construct_event = _webhook_event({
+            "type": "charge.dispute.closed",
+            "data": {"object": {
+                "status": "won",
+                "charge": {"customer": f"cus_r16_{friend_id}"},
+            }},
+        })
+        client.post("/stripe-webhook", content=b"{}",
+                    headers={"stripe-signature": "t=1,v1=valid"})
+        check("R8 replaying a won .closed event does not double-credit",
+              credits() == 1, str(credits()))
+
+        # Stripe's DEFAULT payload sends `charge` as a bare string id, not an
+        # expanded object. The webhook must still restore the credit — resolve
+        # the customer via the charge. (Charge.retrieve is monkeypatched below;
+        # a missing/unresolvable charge must not crash the handler.)
+        def charge_retrieve(charge_id, *a, **k):
+            return type("Charge", (), {"customer": f"cus_r16_{friend_id}"})()
+        real_retrieve = stripe.Charge.retrieve
+        stripe.Charge.retrieve = staticmethod(charge_retrieve)
+        try:
+            stripe.Webhook.construct_event = _webhook_event({
+                "type": "charge.dispute.created",
+                "data": {"object": {
+                    "status": "needs_response",
+                    "charge": f"ch_r16_{friend_id}",
+                }},
+            })
+            r = client.post("/stripe-webhook", content=b"{}",
+                            headers={"stripe-signature": "t=1,v1=valid"})
+            check("R8 dispute.created with a bare charge id revokes",
+                  r.status_code == 200 and credits() == 0, str(credits()))
+
+            stripe.Webhook.construct_event = _webhook_event({
+                "type": "charge.dispute.closed",
+                "data": {"object": {
+                    "status": "won",
+                    "charge": f"ch_r16_{friend_id}",
+                }},
+            })
+            r = client.post("/stripe-webhook", content=b"{}",
+                            headers={"stripe-signature": "t=1,v1=valid"})
+            check("R8 dispute.closed won with a bare charge id restores",
+                  r.status_code == 200 and credits() == 1, str(credits()))
+        finally:
+            stripe.Charge.retrieve = real_retrieve
+
+        # An unreferred account being refunded is a no-op, not a crash.
+        solo_id, _ = make_user(engine, "r16-revoke-solo@test.local", is_active=False)
+        before = credits()
+        r = post_event("charge.refunded", f"cus_r16_{solo_id}", refunded=True)
+        check("R8 refunding an unreferred account is a no-op",
+              r.status_code == 200 and credits() == before,
+              f"before={before} after={credits()}")
+
+        # If the friend later pays again, the credit is re-earned.
+        stripe.Webhook.construct_event = _webhook_event({
+            "type": "checkout.session.completed",
+            "data": {"object": {
+                "payment_status": "paid",
+                "customer": f"cus_r16_{friend_id}",
+                "subscription": f"sub_r16_{friend_id}",
+                "metadata": {"user_id": str(friend_id)},
+            }},
+        })
+        client.post("/stripe-webhook", content=b"{}",
+                    headers={"stripe-signature": "t=1,v1=valid"})
+        check("R8 a later re-payment re-earns the month",
+              credits() == 1, str(credits()))
+
+        # And the direct helper is equally idempotent on an uncredited account.
+        db = get_session(engine)
+        try:
+            friend = db.query(User).filter(User.id == friend_id).one()
+            revoke_referrer_credit(db, friend)
+            revoke_referrer_credit(db, friend)
+            db.commit()
+            check("R8 direct revocation twice ends at zero",
+                  load(engine, referrer_id).referral_credit_months == 0)
+        finally:
+            db.close()
+
+        client.__exit__(None, None, None)
+    finally:
+        (main.engine, main.STRIPE_WEBHOOK_SECRET,
+         stripe.Webhook.construct_event) = real
+
+
+# --------------------- (R9) the new referral column migrates onto old tables
+
+def test_migration_adds_ever_credited_column():
+    print("\n[R9] migrate_schema adds referral_redemptions.ever_credited_at")
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    _tmpfiles.append(tmp.name)
+    engine = create_engine(f"sqlite:///{tmp.name}",
+                           connect_args={"check_same_thread": False})
+
+    # A referral_redemptions table from the previous release: no ever_credited_at.
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE referral_redemptions (
+                id INTEGER PRIMARY KEY,
+                referrer_id INTEGER,
+                referred_user_id INTEGER UNIQUE,
+                code VARCHAR(32),
+                created_at DATETIME,
+                credited_at DATETIME
+            )
+        """))
+        conn.execute(text(
+            "INSERT INTO referral_redemptions "
+            "(referrer_id, referred_user_id, code, created_at) "
+            "VALUES (1, 2, 'TESTCODE1', '2026-08-01')"))
+
+    applied = migrate_schema(engine)
+    check("R9 the migration reports the ever_credited_at column",
+          any("referral_redemptions.ever_credited_at" in a for a in applied),
+          str(applied))
+
+    with engine.begin() as conn:
+        cols = [r[1] for r in conn.execute(text("PRAGMA table_info(referral_redemptions)"))]
+    check("R9 the column now exists", "ever_credited_at" in cols, str(cols))
+    check("R9 re-running the migration is a no-op",
+          not any("referral_redemptions.ever_credited_at" in a
+                  for a in migrate_schema(engine)))
+
+
 # ------------------------------------------------------------------ entry point
 
 def main_runner():
@@ -511,6 +903,9 @@ def main_runner():
         test_dashboard_shows_referral_link,
         test_webhook_credits_referrer_once,
         test_migration_backfills_referral_codes,
+        test_pending_referral_cap_blocks_farming,
+        test_refund_revokes_referrer_credit,
+        test_migration_adds_ever_credited_column,
     ]
     for t in tests:
         t()

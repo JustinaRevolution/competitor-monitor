@@ -30,7 +30,7 @@ from app.models import (
     normalize_referral_code, pending_alert_events,
     prune_change_events, recall_failure_state, record_referral,
     referral_stats, referral_trial_active, remember_failure_state, resolve_referrer,
-    user_is_paid, utcnow, validate_check_interval_hours,
+    revoke_referrer_credit, user_is_paid, utcnow, validate_check_interval_hours,
 )
 from app.monitor import check_url
 from app.alerts import send_change_alert, send_welcome_email
@@ -758,6 +758,31 @@ async def billing_checkout(request: Request, csrf_token: str = Form("")):
 PAID_SUBSCRIPTION_STATUSES = ("active", "trialing")
 
 
+def _dispute_customer_id(stripe, dispute) -> str | None:
+    """
+    The customer id behind a dispute, whether Stripe sent `charge` expanded
+    (a dict with `customer`) or as a bare id string (the default payload).
+
+    The webhook default does NOT expand `charge`, so the object carries the
+    charge id, not the customer. Resolving it needs one API call on the
+    charge; the webhook path is locally HMAC-verified and the client is
+    bounded (STRIPE_TIMEOUT_SECONDS, no retries), so this stays cheap.
+    Returns None when the dispute has no resolvable customer.
+    """
+    charge = dispute.get("charge")
+    if isinstance(charge, dict):
+        customer = charge.get("customer")
+        return customer if isinstance(customer, str) else None
+    if isinstance(charge, str):
+        try:
+            resolved = stripe.Charge.retrieve(charge)
+        except stripe.error.StripeError:
+            return None
+        customer = getattr(resolved, "customer", None)
+        return customer if isinstance(customer, str) else None
+    return None
+
+
 @app.post("/stripe-webhook")
 async def stripe_webhook(request: Request):
     """Handle Stripe webhook events (subscription created, updated, cancelled)."""
@@ -812,6 +837,60 @@ async def stripe_webhook(request: Request):
                     if settled:
                         # Send welcome email
                         await send_welcome_email(user.email)
+            finally:
+                db.close()
+
+    elif event["type"] == "charge.refunded":
+        # A referred friend's payment has been reversed: whoever referred them
+        # no longer has a banked month. Idempotent — only a credited redemption
+        # is un-credited, so a replayed refund cannot decrement twice, and it is
+        # left uncredited rather than deleted so a later re-collection re-earns
+        # the credit through the normal checkout path. Only a FULL refund
+        # revokes: a partial goodwill refund must not wipe the month.
+        charge = event["data"]["object"]
+        customer_id = charge.get("customer")
+        if customer_id and charge.get("refunded") is True:
+            db = get_session(engine)
+            try:
+                user = db.query(User).filter(
+                    User.stripe_customer_id == customer_id).first()
+                if user:
+                    revoke_referrer_credit(db, user)
+                    db.commit()
+            finally:
+                db.close()
+
+    elif event["type"] == "charge.dispute.created":
+        # A dispute has been opened against a referred friend's payment: the
+        # money is at risk, so the referrer's month is un-banked until the
+        # dispute resolves. Same idempotence as the refund path.
+        dispute = event["data"]["object"]
+        customer_id = await asyncio.to_thread(_dispute_customer_id, stripe, dispute)
+        if customer_id:
+            db = get_session(engine)
+            try:
+                user = db.query(User).filter(
+                    User.stripe_customer_id == customer_id).first()
+                if user:
+                    revoke_referrer_credit(db, user)
+                    db.commit()
+            finally:
+                db.close()
+
+    elif event["type"] == "charge.dispute.closed":
+        # A dispute is over. If we won it, the friend's payment stands and the
+        # referrer's month is re-earned; if we lost, the charge is gone and the
+        # credit stays revoked.
+        dispute = event["data"]["object"]
+        customer_id = await asyncio.to_thread(_dispute_customer_id, stripe, dispute)
+        if customer_id and dispute.get("status") == "won":
+            db = get_session(engine)
+            try:
+                user = db.query(User).filter(
+                    User.stripe_customer_id == customer_id).first()
+                if user:
+                    credit_referrer_for_payment(db, user)
+                    db.commit()
             finally:
                 db.close()
 

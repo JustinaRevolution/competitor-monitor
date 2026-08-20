@@ -249,6 +249,13 @@ REFERRAL_CODE_LEN = 8
 REFERRAL_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 REFERRAL_CODE_ATTEMPTS = 10
 REFERRAL_TRIAL_DAYS = 30
+# How many *pending* (uncredited) trials one referrer may have outstanding at
+# once. The trial is granted before the friend pays, so without a cap one paid
+# account could mint unbounded free months — real fetch cost with no revenue.
+# A slot frees when a referred friend actually pays (credited_at set) — or when
+# a refund revokes a credit. The cap is per referrer, not per IP, so rotating
+# addresses does not help; it is what makes the trial grant a finite resource.
+REFERRAL_MAX_PENDING = 5
 
 
 def generate_referral_code() -> str:
@@ -289,6 +296,12 @@ class ReferralRedemption(Base):
     # Set the first time the referred account pays. Also the idempotence guard:
     # Stripe retries webhooks, and a replay must not bank a second month.
     credited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Set the first time the referred account pays, and never cleared. A
+    # revoked credit (credited_at → None on refund/dispute) must NOT free a
+    # farming slot: the trial was already granted, and re-counting the row as
+    # pending would let a pay→farm→dispute cycle mint more trials than the cap.
+    # `resolve_referrer` counts only rows where this is unset.
+    ever_credited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 def ensure_referral_code(db, user) -> str:
@@ -314,13 +327,26 @@ def ensure_referral_code(db, user) -> str:
     raise RuntimeError("could not allocate a unique referral code")
 
 
-def resolve_referrer(db, code, email: str | None = None):
+def resolve_referrer(db, code, email: str | None = None, now: datetime | None = None):
     """
     The account that owns `code` and may be credited for it, or None.
 
     Only a genuinely subscribed account (`is_active`) can refer. A trial account
     must not, or a referral chain would mint free months out of nothing: each
     free month would be enough to hand out the next one.
+
+    A referrer who already has REFERRAL_MAX_PENDING uncredited trials outstanding
+    grants nothing more — the code is treated like an unknown one. This bounds
+    trial farming: one paid account can hand out at most REFERRAL_MAX_PENDING
+    free months before any of them have to convert (or be revoked), and the cap
+    is per referrer rather than per IP, so address rotation cannot dodge it.
+    Only redemptions that have *never* been credited count toward the cap: a
+    revoked credit (credited_at → None after a refund) must not free a slot,
+    or a pay→farm→dispute cycle could mint more trials than the cap.
+    A trial that has already lapsed without converting no longer occupies a
+    slot either — otherwise anyone holding a public code could burn all the
+    slots with disposable emails that never pay and grief the referrer out of
+    referring anyone, forever.
     """
     normalized = normalize_referral_code(code)
     if not normalized:
@@ -330,6 +356,17 @@ def resolve_referrer(db, code, email: str | None = None):
         return None
     if email and referrer.email == email:
         return None  # no referring yourself
+    now = now or utcnow()
+    pending = (
+        db.query(ReferralRedemption)
+        .join(User, User.id == ReferralRedemption.referred_user_id)
+        .filter(ReferralRedemption.referrer_id == referrer.id,
+                ReferralRedemption.ever_credited_at == None,  # noqa: E711
+                User.trial_ends_at > now)
+        .count()
+    )
+    if pending >= REFERRAL_MAX_PENDING:
+        return None
     return referrer
 
 
@@ -379,6 +416,34 @@ def credit_referrer_for_payment(db, user, now: datetime | None = None) -> bool:
         return False
     referrer.referral_credit_months = (referrer.referral_credit_months or 0) + 1
     redemption.credited_at = now or utcnow()
+    redemption.ever_credited_at = redemption.ever_credited_at or (now or utcnow())
+    db.flush()
+    return True
+
+
+def revoke_referrer_credit(db, user) -> bool:
+    """
+    A referred account's payment was refunded or disputed: un-bank the month.
+
+    The mirror of `credit_referrer_for_payment`. Only a credited redemption is
+    touched, so replays of the same refund event cannot decrement twice, and an
+    unreferred account is a no-op. The redemption is left uncredited rather than
+    deleted, so if the friend's payment is later re-collected, the credit is
+    re-earned by the normal path. Callers commit.
+    """
+    redemption = (
+        db.query(ReferralRedemption)
+        .filter(ReferralRedemption.referred_user_id == user.id,
+                ReferralRedemption.credited_at != None)  # noqa: E711
+        .first()
+    )
+    if redemption is None:
+        return False
+    referrer = db.query(User).filter(User.id == redemption.referrer_id).first()
+    if referrer is None:
+        return False
+    referrer.referral_credit_months = max(0, (referrer.referral_credit_months or 0) - 1)
+    redemption.credited_at = None
     db.flush()
     return True
 
@@ -743,6 +808,9 @@ _ADDED_COLUMNS = {
     "change_events": {
         "alert_attempts": "INTEGER NOT NULL DEFAULT 0",
         "last_alert_attempt_at": "DATETIME",
+    },
+    "referral_redemptions": {
+        "ever_credited_at": "DATETIME",
     },
 }
 
