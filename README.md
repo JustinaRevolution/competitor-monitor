@@ -32,6 +32,17 @@ The script will ask for:
 - Stripe keys (stripe.com)
 - Email for SSL notifications
 
+The server copy is NOT a git checkout. To update a deployed instance, push the
+app files from your local repo (or any machine with this repo):
+
+```bash
+scp -r app deploy requirements.txt stripe_watchdog.py root@<vps-ip>:/opt/competitor-monitor/
+ssh root@<vps-ip> 'systemctl restart competitor-monitor'
+```
+
+(The README's older "git pull" update path only works if the server copy was
+cloned with git; the current deploy script copies files instead.)
+
 ## Architecture
 
 ```
