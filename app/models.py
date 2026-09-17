@@ -22,6 +22,11 @@ MIN_CHECK_INTERVAL_HOURS = 1
 MAX_CHECK_INTERVAL_HOURS = 168  # one week
 DEFAULT_CHECK_INTERVAL_HOURS = 24
 
+# Plan URL cap. The old default (10) is kept as PREVIOUS so migrate_schema can
+# raise existing rows without touching any account that already has a custom cap.
+PREVIOUS_PLAN_MAX_URLS = 10
+DEFAULT_MAX_URLS = 100
+
 
 class InvalidIntervalError(ValueError):
     """Raised when a submitted check interval is outside the allowed range."""
@@ -209,7 +214,7 @@ class User(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)  # True after first payment
-    max_urls: Mapped[int] = mapped_column(Integer, default=10)
+    max_urls: Mapped[int] = mapped_column(Integer, default=DEFAULT_MAX_URLS)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     # ----- Referrals -----
@@ -838,6 +843,7 @@ def migrate_schema(engine) -> list[str]:
                 applied.append(f"{table}.{name}")
         if "users" in existing_tables:
             applied.extend(_backfill_referral_codes(conn))
+            applied.extend(_raise_default_url_cap(conn))
     return applied
 
 
@@ -869,6 +875,29 @@ def _backfill_referral_codes(conn) -> list[str]:
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_referral_code ON users (referral_code)"
     ))
     return [f"users.referral_code (backfilled {len(rows)})"] if rows else []
+
+
+def _raise_default_url_cap(conn) -> list[str]:
+    """
+    Lift accounts still on the old 10-URL plan default to the current cap.
+
+    Only rows exactly equal to PREVIOUS_PLAN_MAX_URLS move. A custom cap
+    (higher or lower) is left alone. Safe to run on every boot: a second
+    pass updates zero rows.
+    """
+    present = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
+    if "max_urls" not in present:
+        return []
+    result = conn.execute(
+        text("UPDATE users SET max_urls = :new WHERE max_urls = :old"),
+        {"new": DEFAULT_MAX_URLS, "old": PREVIOUS_PLAN_MAX_URLS},
+    )
+    if result.rowcount:
+        return [
+            f"users.max_urls (raised {result.rowcount} "
+            f"from {PREVIOUS_PLAN_MAX_URLS} to {DEFAULT_MAX_URLS})"
+        ]
+    return []
 
 
 def init_db(engine=None):
