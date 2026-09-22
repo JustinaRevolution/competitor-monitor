@@ -387,6 +387,13 @@ add_url_user_limiter = TokenBucket(capacity=20, refill_seconds=3600)
 check_now_limiter = TokenBucket(capacity=10, refill_seconds=300)
 check_now_user_limiter = TokenBucket(capacity=10, refill_seconds=300)
 
+# The homepage demo makes an anonymous visitor's browser trigger a server-side
+# fetch with no login and no account to also key a limit on — IP is the only
+# thing to bound it by. Generous enough for someone trying a handful of
+# competitor pages back to back, bounded so it can't be scripted into a free
+# scraping proxy.
+demo_extract_limiter = TokenBucket(capacity=10, refill_seconds=300)
+
 
 def enforce_rate_limit(request: Request, limiter: TokenBucket, what: str) -> None:
     if not limiter.allow(f"{what}:{client_ip(request)}"):

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block head %}<link rel="canonical" href="https://pricegazer.com/too-many-price-alerts">{% endblock %}
+{% block title %}Too Many Price Alerts? Here's Why Your Monitor Is the Problem{% endblock %}
+{% block content %}
+
+<article class="seo-page">
+    <p class="eyebrow">Complaint</p>
+    <h1>Too many price alerts</h1>
+    <p class="seo-lede">Alert fatigue is the most common complaint about competitor price monitoring — 200 alerts a morning, most of them nothing. If you've stopped reading your monitor's emails, the monitor has already failed at its one job.</p>
+
+    <section>
+        <h2>Why this is a problem</h2>
+        <p>Generic page monitors alert on any change to a page, not just the price. A banner rotates, a stock counter ticks down, a cookie popup gets re-rendered, a "last updated" timestamp refreshes — to a pixel-diff tool, all of that looks exactly like a price change. Track 50 SKUs across a handful of competitors this way, and you get a wall of alerts by Thursday.</p>
+        <p>The predictable outcome: you stop reading them. And once you've trained yourself to skim past the alert emails, the one that actually matters — a real price drop — gets buried with the rest. The monitor is technically running. It has stopped being useful.</p>
+    </section>
+
+    <section>
+        <h2>How PriceGazer is different</h2>
+        <p>PriceGazer reads the price, not the page. Before comparing anything, it strips out the parts of a page that don't matter — navigation, banners, timestamps, stock counters, cookie notices, scripts — and diffs only the content that does: the price itself, plan names, features, trial terms.</p>
+        <p>That means one email when a number really moves, not twenty when nothing did. Tracking 50 SKUs shouldn't mean 200 alerts a morning — it should mean silence until something you actually need to know about happens.</p>
+    </section>
+
+    <section>
+        <h2>The bottom line</h2>
+        <p>If your inbox is why you stopped trusting your price monitor, that's not a you problem — it's what happens when a tool alerts on pixels instead of prices. PriceGazer is built to only tell you what matters. <a href="/signup">Start watching</a> in two minutes, or read <a href="/how-to-track-competitor-prices">how to track competitor prices</a> properly.</p>
+    </section>
+</article>
+
+{% endblock %}

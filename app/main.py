@@ -5,10 +5,11 @@ PriceGazer — FastAPI Web Application
 import asyncio
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Form, Depends, HTTPException, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -38,7 +39,8 @@ from app.security import (
     CSRF_COOKIE, MAX_EMAIL_LEN, MAX_PASSWORD_LEN, InvalidInputError,
     UnsafeUrlError, add_url_limiter,
     add_url_user_limiter, check_now_limiter, check_now_user_limiter,
-    csrf_secret_is_valid, csrf_token, enforce_rate_limit, enforce_user_rate_limit,
+    csrf_secret_is_valid, csrf_token, demo_extract_limiter,
+    enforce_rate_limit, enforce_user_rate_limit,
     login_limiter, new_csrf_secret, normalize_email, normalize_label,
     set_csrf_cookie, signup_limiter, validate_password, validate_url_async,
     verify_csrf,
@@ -1379,6 +1381,46 @@ async def vs_visualping(request: Request):
         db.close()
 
 
+@app.get("/vs-prisync", response_class=HTMLResponse)
+async def vs_prisync(request: Request):
+    db = get_session(engine)
+    try:
+        user = get_user_from_request(request, db)
+        return templates.TemplateResponse("seo_vs_prisync.html", {"request": request, "user": user})
+    finally:
+        db.close()
+
+
+@app.get("/vs-price2spy", response_class=HTMLResponse)
+async def vs_price2spy(request: Request):
+    db = get_session(engine)
+    try:
+        user = get_user_from_request(request, db)
+        return templates.TemplateResponse("seo_vs_price2spy.html", {"request": request, "user": user})
+    finally:
+        db.close()
+
+
+@app.get("/vs-diy-script", response_class=HTMLResponse)
+async def vs_diy_script(request: Request):
+    db = get_session(engine)
+    try:
+        user = get_user_from_request(request, db)
+        return templates.TemplateResponse("seo_vs_diy_script.html", {"request": request, "user": user})
+    finally:
+        db.close()
+
+
+@app.get("/too-many-price-alerts", response_class=HTMLResponse)
+async def too_many_price_alerts(request: Request):
+    db = get_session(engine)
+    try:
+        user = get_user_from_request(request, db)
+        return templates.TemplateResponse("seo_too_many_price_alerts.html", {"request": request, "user": user})
+    finally:
+        db.close()
+
+
 @app.get("/how-to-track-competitor-prices", response_class=HTMLResponse)
 async def how_to_track_competitor_prices(request: Request):
     db = get_session(engine)
@@ -1417,6 +1459,10 @@ async def sitemap(request: Request):
   <url><loc>https://pricegazer.com/competitor-price-tracking</loc><changefreq>monthly</changefreq><priority>0.9</priority></url>
   <url><loc>https://pricegazer.com/how-to-track-competitor-prices</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://pricegazer.com/vs-visualping</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://pricegazer.com/vs-prisync</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://pricegazer.com/vs-price2spy</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://pricegazer.com/vs-diy-script</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://pricegazer.com/too-many-price-alerts</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://pricegazer.com/signup</loc><changefreq>yearly</changefreq><priority>0.7</priority></url>
   <url><loc>https://pricegazer.com/login</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
   <url><loc>https://pricegazer.com/privacy</loc><changefreq>yearly</changefreq><priority>0.2</priority></url>

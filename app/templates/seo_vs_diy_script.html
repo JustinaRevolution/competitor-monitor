@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block head %}<link rel="canonical" href="https://pricegazer.com/vs-diy-script">{% endblock %}
+{% block title %}PriceGazer vs a DIY Scraper — Who Maintains It on a Bad Week{% endblock %}
+{% block content %}
+
+<article class="seo-page">
+    <p class="eyebrow">Comparison</p>
+    <h1>PriceGazer vs a DIY script: someone has to maintain it</h1>
+    <p class="seo-lede">A scheduled scraper is a genuinely good solution — until a retailer redesigns their product page, rotates their CSS selectors, or adds bot detection. The build takes a weekend. The maintenance takes an hour a week, forever. And the real cost isn't the time: it's the Tuesday morning you find out your script has been silently returning nothing since Friday, while a competitor undercut you all weekend. PriceGazer is that script, maintained by someone whose whole job is keeping the extraction working — $19/month, less than an hour of your week is worth.</p>
+
+    <section>
+        <h2>Why the DIY script stops working</h2>
+        <p>Nothing is wrong with the idea. A cron job, a scraper, a diff, an email — that's a sound architecture, and plenty of technical operators build exactly this in a weekend. The problem shows up later: the target site redesigns its markup, a selector that worked for months quietly stops matching, and the script keeps running without ever raising an error. It just returns nothing, or the wrong thing, and nobody notices until someone happens to check the competitor's page manually.</p>
+        <p>That failure mode is the expensive one. Not the weekend you spent building it — the week it ran silently broken while you assumed it was working.</p>
+    </section>
+
+    <section>
+        <h2>How PriceGazer is different</h2>
+        <p>PriceGazer is the same idea — fetch, diff, alert — with the maintenance built in. When extraction breaks for a target, PriceGazer flags the check as failed and, after repeated failures, pauses it rather than pretending it's still working. You see a broken check in your dashboard, not silence for a week.</p>
+        <p>You still don't have to write or maintain the scraper. That's the job you're paying $19/month for.</p>
+    </section>
+
+    <section class="seo-compare">
+        <h2>Side by side</h2>
+        <table>
+            <thead>
+                <tr><th></th><th>DIY script</th><th>PriceGazer</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Initial build</td><td>A weekend</td><td>Paste URLs, running in minutes</td></tr>
+                <tr><td>Ongoing maintenance</td><td>~1 hour/week, forever</td><td>Handled for you</td></tr>
+                <tr><td>Selector/redesign breakage</td><td>Silent until you notice</td><td>Flagged as a failed check, not silence</td></tr>
+                <tr><td>Bot detection handling</td><td>Your problem to solve</td><td>Handled as part of the service</td></tr>
+                <tr><td>Cost</td><td>Your time, indefinitely</td><td>$19/month flat</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>When a DIY script is the right call</h2>
+        <p>To be fair: if you have the engineering time to spare and enjoy owning this kind of infrastructure, building it yourself is a legitimate choice — you'll learn the target sites' quirks and have full control. PriceGazer is for the operator who'd rather not own that maintenance burden at all.</p>
+    </section>
+
+    <section>
+        <h2>The bottom line</h2>
+        <p>A scraper you build is free until the week it silently breaks. PriceGazer costs $19/month and someone else owns the breakage. <a href="/signup">Start watching</a> in two minutes, or read <a href="/how-to-track-competitor-prices">how to track competitor prices</a> properly.</p>
+    </section>
+</article>
+
+{% endblock %}
