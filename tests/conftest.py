@@ -20,7 +20,23 @@ failed checks reports "failed" against the named test rather than a passing test
 plus a teardown error.
 """
 
+import os
+
 import pytest
+
+# `app.config` reads Stripe settings from the environment once, at first
+# import, and every test file that needs `BILLING_ENABLED` true sets these
+# itself before importing `app.main` — assuming it will be the *first* module
+# in the whole session to do so. Whichever test file collects first (pytest
+# imports every module during collection, before any test runs) decides this
+# for the entire run; nothing re-reads the environment afterward. Setting
+# sane non-empty defaults here, before collection touches any test module,
+# makes that outcome deterministic instead of depending on file name sort
+# order — a file with no opinion on billing (e.g. the demo-extract widget
+# tests) must not leave it unset and silently disable billing everywhere else.
+os.environ.setdefault("SECRET_KEY", "x" * 64)
+os.environ.setdefault("STRIPE_PRICE_ID", "price_test_conftest_default")
+os.environ.setdefault("STRIPE_SECRET_KEY", "sk_test_conftest_dummy")
 
 
 @pytest.hookimpl(wrapper=True)

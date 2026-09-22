@@ -1291,6 +1291,39 @@ async def check_now(request: Request, url_id: int, csrf_token: str = Form("")):
         db.close()
 
 
+@app.post("/api/demo-extract")
+async def demo_extract(request: Request, url: str = Form(...), csrf_token: str = Form("")):
+    """
+    Homepage "paste a URL, see the price" widget. Stateless and unauthenticated:
+    runs the same fetch/extract engine as the scheduled monitor against a
+    single page, on demand, and never touches the database.
+    """
+    verify_csrf(request, csrf_token)
+    enforce_rate_limit(request, demo_extract_limiter, "demo_extract")
+
+    url = url.strip()
+    try:
+        await validate_url_async(url)
+    except UnsafeUrlError as e:
+        return JSONResponse({"ok": False, "error": f"Refusing to fetch this URL: {e}"})
+
+    result = await check_url(url, None, None)
+    if result.get("error"):
+        return JSONResponse({"ok": False, "error": result["error"]})
+
+    content = result.get("new_content") or ""
+    match = re.search(r"\$[\d,]+(?:\.\d{2})?", content)
+    if not match:
+        return JSONResponse({"ok": True, "found": False})
+
+    price = match.group(0)
+    context_start = max(0, match.start() - 40)
+    context_end = min(len(content), match.end() + 40)
+    context = content[context_start:context_end].strip()
+
+    return JSONResponse({"ok": True, "found": True, "price": price, "context": context})
+
+
 @app.post("/urls/{url_id}/toggle")
 async def toggle_url(request: Request, url_id: int, csrf_token: str = Form("")):
     verify_csrf(request, csrf_token)

@@ -36,6 +36,19 @@
     </div>
 </section>
 
+<section class="demo-widget">
+    <div class="demo-widget-inner">
+        <p class="eyebrow">Try it — no signup</p>
+        <h2>Paste a pricing page. We'll pull the price.</h2>
+        <form id="demo-extract-form" class="demo-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+            <input type="url" name="url" placeholder="https://competitor.com/pricing" required>
+            <button type="submit" class="btn-primary">Extract price</button>
+        </form>
+        <div id="demo-result" class="demo-result" hidden></div>
+    </div>
+</section>
+
 <section class="wedge">
     <div class="wedge-inner">
         <p class="eyebrow">Signal vs noise</p>
@@ -123,5 +136,43 @@
         <a href="/signup" class="btn-primary btn-lg">Start watching</a>
     </div>
 </section>
+
+<script>
+document.getElementById('demo-extract-form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var form = e.target;
+    var button = form.querySelector('button');
+    var result = document.getElementById('demo-result');
+    button.disabled = true;
+    button.textContent = 'Checking…';
+    result.hidden = true;
+    try {
+        var res = await fetch('/api/demo-extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams(new FormData(form)),
+        });
+        var data = await res.json();
+        result.hidden = false;
+        if (data.ok && data.found) {
+            result.className = 'demo-result demo-result-ok';
+            result.textContent = 'Found: ' + data.price;
+        } else if (data.ok) {
+            result.className = 'demo-result demo-result-empty';
+            result.textContent = "We didn't find a price on that page.";
+        } else {
+            result.className = 'demo-result demo-result-error';
+            result.textContent = data.error || 'Could not check that page.';
+        }
+    } catch (err) {
+        result.hidden = false;
+        result.className = 'demo-result demo-result-error';
+        result.textContent = 'Something went wrong. Try again.';
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Extract price';
+    }
+});
+</script>
 
 {% endblock %}

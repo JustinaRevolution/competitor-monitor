@@ -228,6 +228,40 @@ main > * {
     margin-top: 0.75rem;
 }
 
+/* ---- Homepage demo widget ---- */
+.demo-widget { padding: 3rem 1.25rem; border-top: 1px solid var(--border); }
+.demo-widget-inner { max-width: 640px; margin: 0 auto; text-align: center; }
+.demo-widget h2 {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    margin: 0.4rem 0 1.25rem;
+}
+.demo-form { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
+.demo-form input[type="url"] {
+    flex: 1 1 320px;
+    padding: 0.7rem 0.9rem;
+    background: var(--bg-sunken);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--ink);
+    font-size: 0.95rem;
+}
+.demo-form input[type="url"]:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(232, 163, 61, 0.15);
+}
+.demo-result {
+    margin-top: 1rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    display: inline-block;
+}
+.demo-result-ok { background: var(--good-dim); border: 1px solid var(--good); color: #86efac; }
+.demo-result-empty { background: var(--bg-raised); border: 1px solid var(--border-strong); color: var(--muted); }
+.demo-result-error { background: var(--bad-dim); border: 1px solid var(--bad); color: #fca5a5; }
+
 /* ---- Wedge: signal vs noise (the centerpiece) ---- */
 .wedge { padding: 4rem 1.25rem; border-top: 1px solid var(--border); }
 .wedge-inner { max-width: 980px; margin: 0 auto; }
